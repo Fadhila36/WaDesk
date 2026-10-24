@@ -1,21 +1,22 @@
+use std::path::Path;
 use wadesk::config::{Account, AccountsManifest, AppPaths, DEFAULT_PROFILE_ID};
 
 #[test]
 fn test_default_profile_paths() {
     let paths = AppPaths::for_profile(DEFAULT_PROFILE_ID);
     assert!(paths.config_dir.ends_with("WaDesk"));
-    assert!(paths.user_data_dir.ends_with(r"WaDesk\UserData"));
-    assert!(paths.discovery_file.ends_with(r"WaDesk\mcp.json"));
-    assert!(paths.token_file.ends_with(r"WaDesk\mcp-token"));
+    assert!(paths.user_data_dir.ends_with(Path::new("WaDesk").join("UserData")));
+    assert!(paths.discovery_file.ends_with(Path::new("WaDesk").join("mcp.json")));
+    assert!(paths.token_file.ends_with(Path::new("WaDesk").join("mcp-token")));
 }
 
 #[test]
 fn test_custom_profile_paths() {
     let profile_id = "sales_team";
     let paths = AppPaths::for_profile(profile_id);
-    assert!(paths.user_data_dir.ends_with(r"WaDesk\profiles\sales_team\UserData"));
-    assert!(paths.discovery_file.ends_with(r"WaDesk\mcp-sales_team.json"));
-    assert!(paths.token_file.ends_with(r"WaDesk\mcp-token-sales_team"));
+    assert!(paths.user_data_dir.ends_with(Path::new("WaDesk").join("profiles").join("sales_team").join("UserData")));
+    assert!(paths.discovery_file.ends_with(Path::new("WaDesk").join("mcp-sales_team.json")));
+    assert!(paths.token_file.ends_with(Path::new("WaDesk").join("mcp-token-sales_team")));
 }
 
 #[test]

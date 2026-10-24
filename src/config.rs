@@ -26,6 +26,9 @@ impl AppPaths {
     pub fn for_profile(profile_id: &str) -> Self {
         let base_dir = std::env::var("APPDATA")
             .map(PathBuf::from)
+            .or_else(|_| {
+                std::env::var("HOME").map(|h| PathBuf::from(h).join(".config"))
+            })
             .unwrap_or_else(|_| PathBuf::from("."));
         let config_dir = base_dir.join(APP_NAME);
 
