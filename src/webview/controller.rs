@@ -1,11 +1,19 @@
+use std::path::Path;
 use std::time::Duration;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use windows::core::{Interface, PCWSTR};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+use webview2_com::{
+    CoreWebView2EnvironmentOptions,
+    CreateCoreWebView2ControllerCompletedHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler,
+};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2Controller, ICoreWebView2_19,
+    CreateCoreWebView2EnvironmentWithOptions,
+    ICoreWebView2, ICoreWebView2Controller, ICoreWebView2EnvironmentOptions,
+    ICoreWebView2_19,
     COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
     COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
 };
@@ -23,6 +31,96 @@ pub struct WebViewHost {
 }
 
 impl WebViewHost {
+    pub fn create(hwnd: HWND, user_data_dir: &Path) -> Result<Self> {
+        let (ui_tx, _ui_rx) = mpsc::unbounded_channel();
+        let coordinator = RpcCoordinator::new();
+
+        let options = CoreWebView2EnvironmentOptions::default();
+        unsafe {
+            options.set_additional_browser_arguments(WEBVIEW2_BROWSER_ARGS.to_string());
+        }
+        let env_options: ICoreWebView2EnvironmentOptions = options.into();
+
+        let data_dir_str = user_data_dir.to_string_lossy().to_string();
+        let wide_data_dir: Vec<u16> = data_dir_str.encode_utf16().chain(std::iter::once(0)).collect();
+
+        let environment = {
+            let (tx, rx) = std::sync::mpsc::channel();
+            CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
+                Box::new(move |handler| unsafe {
+                    CreateCoreWebView2EnvironmentWithOptions(
+                        PCWSTR::null(),
+                        PCWSTR(wide_data_dir.as_ptr()),
+                        &env_options,
+                        &handler,
+                    )
+                    .map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(move |error_code, env| {
+                    error_code?;
+                    tx.send(env.ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_POINTER)))
+                        .map_err(|_| windows::core::Error::from(windows::Win32::Foundation::E_FAIL))?;
+                    Ok(())
+                }),
+            )
+            .map_err(|e| WaDeskError::WebView2(format!("Environment creation failed: {}", e)))?;
+
+            rx.recv()
+                .map_err(|_| WaDeskError::WebView2("Channel receive failed".into()))?
+                .map_err(|e| WaDeskError::WebView2(format!("Environment result failed: {}", e)))?
+        };
+
+        let controller = {
+            let (tx, rx) = std::sync::mpsc::channel();
+            CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
+                Box::new(move |handler| unsafe {
+                    environment
+                        .CreateCoreWebView2Controller(hwnd, &handler)
+                        .map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(move |error_code, ctrl| {
+                    error_code?;
+                    tx.send(ctrl.ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_POINTER)))
+                        .map_err(|_| windows::core::Error::from(windows::Win32::Foundation::E_FAIL))?;
+                    Ok(())
+                }),
+            )
+            .map_err(|e| WaDeskError::WebView2(format!("Controller creation failed: {}", e)))?;
+
+            rx.recv()
+                .map_err(|_| WaDeskError::WebView2("Channel receive failed".into()))?
+                .map_err(|e| WaDeskError::WebView2(format!("Controller result failed: {}", e)))?
+        };
+
+        unsafe {
+            let mut bounds = RECT::default();
+            let _ = GetClientRect(hwnd, &mut bounds);
+            let _ = controller.SetBounds(bounds);
+            let _ = controller.SetIsVisible(true);
+        }
+
+        let webview = unsafe {
+            controller.CoreWebView2()
+                .map_err(|e| WaDeskError::WebView2(format!("Failed to get CoreWebView2: {}", e)))?
+        };
+
+        let host = Self {
+            webview,
+            controller,
+            coordinator,
+            ui_dispatch_tx: ui_tx,
+        };
+
+        let init_scripts = crate::assets::get_init_scripts(&crate::assets::Prefs::default());
+        for script in &init_scripts {
+            host.add_init_script(script)?;
+        }
+
+        host.navigate("https://web.whatsapp.com")?;
+
+        Ok(host)
+    }
+
     pub fn navigate(&self, url: &str) -> Result<()> {
         let wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
         unsafe {

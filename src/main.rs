@@ -99,8 +99,15 @@ fn main() -> anyhow::Result<()> {
     });
 
     // 5. GUI Window Creation & State Restoration
+    unsafe {
+        let _ = windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
+        );
+    }
+
     let window_state = WindowState::load_or_default(&paths.window_state_file);
-    let window = AppWindow::create(
+    let mut window = AppWindow::create(
         WindowConfig {
             title: window_title,
             width: window_state.width,
@@ -108,6 +115,16 @@ fn main() -> anyhow::Result<()> {
         },
         &window_state,
     )?;
+
+    // 6. Attach active WebView2 instance to window
+    match wadesk::webview::controller::WebViewHost::create(window.hwnd, &paths.user_data_dir) {
+        Ok(webview) => {
+            window.attach_webview(webview);
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to initialize WebView2: {}", e);
+        }
+    }
 
     window.show();
     window.run_message_loop();

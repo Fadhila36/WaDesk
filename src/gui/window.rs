@@ -1,18 +1,20 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
-    PostQuitMessage, RegisterClassExW,
-    ShowWindow, TranslateMessage, MSG, SW_HIDE, SW_SHOW,
-    WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WNDCLASSEXW, CS_HREDRAW, CS_VREDRAW,
-    WM_CLOSE, WM_DESTROY, WM_USER,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
+    GetWindowLongPtrW, PostQuitMessage, RegisterClassExW, SetForegroundWindow,
+    SetWindowLongPtrW, ShowWindow, TranslateMessage, GWLP_USERDATA, MSG,
+    SW_HIDE, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
+    WNDCLASSEXW, CS_HREDRAW, CS_VREDRAW, WM_CLOSE, WM_DESTROY, WM_SIZE,
+    WM_LBUTTONUP, WM_LBUTTONDBLCLK, WM_USER,
 };
 use crate::error::{Result, WaDeskError};
-use crate::gui::tray::TrayIcon;
+use crate::gui::tray::{TrayIcon, WM_TRAYICON};
 use crate::gui::state::WindowState;
+use crate::webview::controller::WebViewHost;
 use crate::win32::dwm::set_dark_titlebar;
 use crate::win32::qos::set_eco_qos;
 
@@ -27,6 +29,7 @@ pub struct WindowConfig {
 pub struct AppWindow {
     pub hwnd: HWND,
     pub tray: Option<TrayIcon>,
+    pub webview: Option<WebViewHost>,
     pub is_visible: Arc<AtomicBool>,
 }
 
@@ -75,9 +78,18 @@ impl AppWindow {
             Ok(Self {
                 hwnd,
                 tray: Some(tray),
+                webview: None,
                 is_visible,
             })
         }
+    }
+
+    pub fn attach_webview(&mut self, webview: WebViewHost) {
+        unsafe {
+            let ctrl_ptr = &webview.controller as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
+            SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, ctrl_ptr as isize);
+        }
+        self.webview = Some(webview);
     }
 
     pub fn show(&self) {
@@ -107,6 +119,14 @@ impl AppWindow {
     }
 }
 
+impl Drop for AppWindow {
+    fn drop(&mut self) {
+        unsafe {
+            SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
+        }
+    }
+}
+
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -114,6 +134,25 @@ unsafe extern "system" fn wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        WM_SIZE => {
+            let ctrl_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            if ctrl_ptr != 0 {
+                let ctrl = &*(ctrl_ptr as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller);
+                let mut bounds = RECT::default();
+                let _ = GetClientRect(hwnd, &mut bounds);
+                let _ = ctrl.SetBounds(bounds);
+            }
+            LRESULT(0)
+        }
+        WM_TRAYICON => {
+            let evt = lparam.0 as u32;
+            if evt == WM_LBUTTONUP || evt == WM_LBUTTONDBLCLK {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+                let _ = SetForegroundWindow(hwnd);
+                set_eco_qos(false);
+            }
+            LRESULT(0)
+        }
         WM_CLOSE => {
             // Minimize to tray on close button click
             let _ = ShowWindow(hwnd, SW_HIDE);
