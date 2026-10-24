@@ -95,16 +95,14 @@ jobs:
           mkdir -p deb-package/usr/share/applications
           mkdir -p deb-package/usr/share/icons/hicolor/scalable/apps
           
-          cat << 'EOF' > deb-package/DEBIAN/control
-Package: wadesk
-Version: 1.0.0
-Section: net
-Priority: optional
-Architecture: amd64
-Maintainer: WaDesk Team <support@wadesk.io>
-Description: Lightweight Native WhatsApp Desktop Client
- WaDesk is a fast, lightweight native WhatsApp Web client and background engine.
-EOF
+          echo "Package: wadesk" > deb-package/DEBIAN/control
+          echo "Version: 1.0.0" >> deb-package/DEBIAN/control
+          echo "Section: net" >> deb-package/DEBIAN/control
+          echo "Priority: optional" >> deb-package/DEBIAN/control
+          echo "Architecture: amd64" >> deb-package/DEBIAN/control
+          echo "Maintainer: WaDesk Team <support@wadesk.io>" >> deb-package/DEBIAN/control
+          echo "Description: Lightweight Native WhatsApp Desktop Client" >> deb-package/DEBIAN/control
+          echo " WaDesk is a fast, lightweight native WhatsApp Web client and background engine." >> deb-package/DEBIAN/control
           
           cp target/release/wadesk deb-package/usr/bin/wadesk
           chmod +x deb-package/usr/bin/wadesk
