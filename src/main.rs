@@ -11,8 +11,23 @@ use wadesk::server::start_loopback_server;
 use wadesk::win32::audio::rename_audio_session;
 use wadesk::win32::instance::SingleInstanceGuard;
 
-fn parse_profile_arg() -> (String, bool) {
+fn parse_cli_args() -> (String, bool) {
     let args: Vec<String> = env::args().collect();
+    for arg in &args[1..] {
+        if arg == "--help" || arg == "-h" {
+            println!("WaDesk v{} - Lightweight, secure native Windows desktop wrapper for WhatsApp Web", env!("CARGO_PKG_VERSION"));
+            println!("\nUsage: wadesk.exe [OPTIONS]");
+            println!("\nOptions:");
+            println!("  -p, --profile <ID>    Start with a specific account profile (default: 'default')");
+            println!("  -h, --help            Print help information");
+            println!("  -V, --version         Print version information");
+            std::process::exit(0);
+        } else if arg == "--version" || arg == "-V" {
+            println!("WaDesk v{}", env!("CARGO_PKG_VERSION"));
+            std::process::exit(0);
+        }
+    }
+
     let mut i = 1;
     while i < args.len() {
         if (args[i] == "--profile" || args[i] == "-p") && i + 1 < args.len() {
@@ -24,7 +39,7 @@ fn parse_profile_arg() -> (String, bool) {
 }
 
 fn main() -> anyhow::Result<()> {
-    let (profile_id, is_explicit) = parse_profile_arg();
+    let (profile_id, is_explicit) = parse_cli_args();
     let paths = AppPaths::for_profile(&profile_id);
     paths.ensure_dirs()?;
 
