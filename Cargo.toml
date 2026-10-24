@@ -1,0 +1,53 @@
+[package]
+name = "wadesk"
+version = "1.0.0"
+edition = "2021"
+authors = ["WaDesk Team"]
+description = "Lightweight, secure native Windows desktop wrapper for WhatsApp Web"
+
+[lib]
+name = "wadesk"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wadesk"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+rand = "0.8"
+subtle = "2.6"
+tokio = { version = "1.43", features = ["full"] }
+axum = { version = "0.8", features = ["multipart"] }
+tower-http = { version = "0.6", features = ["cors"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+# Windows Native & COM APIs
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Threading",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemInformation",
+    "Win32_Media_Audio",
+    "Win32_Security",
+] }
+webview2-com = "0.33"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
