@@ -1,0 +1,113 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: WaDesk-Windows-x86_64
+            bin_name: wadesk.exe
+            archive_ext: zip
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: WaDesk-Linux-x86_64
+            bin_name: wadesk
+            archive_ext: tar.gz
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: WaDesk-macOS-x86_64
+            bin_name: wadesk
+            archive_ext: zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Run Unit & Integration Tests
+        run: cargo test --verbose
+
+      - name: Build Optimized Release Binary
+        run: cargo build --release --verbose
+
+      - name: Package Windows Artifact
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          mkdir dist
+          cp target/release/wadesk.exe dist/
+          cp assets/icon.ico dist/
+          cp README.md dist/
+          Compress-Archive -Path dist/* -DestinationPath "${{ matrix.artifact_name }}.zip"
+
+      - name: Package Linux Artifact
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir dist
+          cp target/release/wadesk dist/
+          cp README.md dist/
+          tar -czvf "${{ matrix.artifact_name }}.tar.gz" -C dist .
+
+      - name: Package macOS Artifact
+        if: matrix.os == 'macos-latest'
+        run: |
+          mkdir dist
+          cp target/release/wadesk dist/
+          cp README.md dist/
+          zip -j "${{ matrix.artifact_name }}.zip" dist/*
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Publish Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/**/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

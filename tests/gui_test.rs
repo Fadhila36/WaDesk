@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 use wadesk::gui::state::WindowState;
 
 #[test]

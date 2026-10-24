@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 use wadesk::win32::instance::SingleInstanceGuard;
 
 #[test]

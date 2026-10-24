@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 use serde_json::json;
 use wadesk::webview::bridge::{BridgeMessage, RpcCoordinator};
 
