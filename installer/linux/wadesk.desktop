@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=WaDesk
+Comment=Lightweight WhatsApp Web Desktop Client
+Exec=/usr/bin/wadesk
+Icon=wadesk
+Terminal=false
+Type=Application
+Categories=Network;InstantMessaging;Chat;
+Keywords=WhatsApp;Chat;Messaging;
+StartupWMClass=WaDesk

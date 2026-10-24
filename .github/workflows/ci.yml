@@ -22,20 +22,14 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: WaDesk-Windows-x86_64
-            bin_name: wadesk.exe
-            archive_ext: zip
 
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: WaDesk-Linux-x86_64
-            bin_name: wadesk
-            archive_ext: tar.gz
 
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: WaDesk-macOS-x86_64
-            bin_name: wadesk
-            archive_ext: zip
 
     steps:
       - name: Checkout repository
@@ -57,37 +51,129 @@ jobs:
       - name: Build Optimized Release Binary
         run: cargo build --release --verbose
 
-      - name: Package Windows Artifact
+      # ----------------- WINDOWS PACKAGING -----------------
+      - name: Package Windows Installer & Portable Zip
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
+          mkdir win-artifacts
+          
+          # 1. Compile Inno Setup GUI Installer
+          choco install innosetup --no-progress -y
+          $iscc = if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          } else {
+            "iscc"
+          }
+          & $iscc installer\windows\wadesk.iss
+          Move-Item -Path "WaDesk-Setup-x86_64.exe" -Destination "win-artifacts/"
+          
+          # 2. Package Portable Zip
           mkdir dist
           cp target/release/wadesk.exe dist/
           cp assets/icon.ico dist/
           cp README.md dist/
-          Compress-Archive -Path dist/* -DestinationPath "${{ matrix.artifact_name }}.zip"
+          Compress-Archive -Path dist/* -DestinationPath "win-artifacts/WaDesk-Windows-x86_64.zip"
 
-      - name: Package Linux Artifact
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          mkdir dist
-          cp target/release/wadesk dist/
-          cp README.md dist/
-          tar -czvf "${{ matrix.artifact_name }}.tar.gz" -C dist .
-
-      - name: Package macOS Artifact
-        if: matrix.os == 'macos-latest'
-        run: |
-          mkdir dist
-          cp target/release/wadesk dist/
-          cp README.md dist/
-          zip -j "${{ matrix.artifact_name }}.zip" dist/*
-
-      - name: Upload Build Artifact
+      - name: Upload Windows Artifacts
+        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
+          path: win-artifacts/*
+          if-no-files-found: error
+
+      # ----------------- LINUX PACKAGING -----------------
+      - name: Package Linux Debian (.deb) & Tarball Installer
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir linux-artifacts
+          
+          # 1. Build .deb installer package
+          mkdir -p deb-package/DEBIAN
+          mkdir -p deb-package/usr/bin
+          mkdir -p deb-package/usr/share/applications
+          mkdir -p deb-package/usr/share/icons/hicolor/scalable/apps
+          
+          cat << 'EOF' > deb-package/DEBIAN/control
+Package: wadesk
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: WaDesk Team <support@wadesk.io>
+Description: Lightweight Native WhatsApp Desktop Client
+ WaDesk is a fast, lightweight native WhatsApp Web client and background engine.
+EOF
+          
+          cp target/release/wadesk deb-package/usr/bin/wadesk
+          chmod +x deb-package/usr/bin/wadesk
+          cp installer/linux/wadesk.desktop deb-package/usr/share/applications/wadesk.desktop
+          cp assets/whatsapp.svg deb-package/usr/share/icons/hicolor/scalable/apps/wadesk.svg
+          
+          dpkg-deb --build deb-package linux-artifacts/wadesk_1.0.0_amd64.deb
+          
+          # 2. Build tarball with install.sh / uninstall.sh
+          mkdir dist
+          cp target/release/wadesk dist/
+          cp installer/linux/wadesk.desktop dist/
+          cp installer/linux/install.sh dist/
+          cp installer/linux/uninstall.sh dist/
+          chmod +x dist/install.sh dist/uninstall.sh
+          cp assets/whatsapp.svg dist/wadesk.svg
+          cp README.md dist/
+          tar -czvf "linux-artifacts/WaDesk-Linux-x86_64.tar.gz" -C dist .
+
+      - name: Upload Linux Artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: linux-artifacts/*
+          if-no-files-found: error
+
+      # ----------------- MACOS PACKAGING -----------------
+      - name: Package macOS App Bundle, DMG & ZIP
+        if: matrix.os == 'macos-latest'
+        run: |
+          mkdir mac-artifacts
+          
+          # 1. Build WaDesk.app bundle
+          mkdir -p WaDesk.app/Contents/MacOS
+          mkdir -p WaDesk.app/Contents/Resources
+          
+          cp target/release/wadesk WaDesk.app/Contents/MacOS/wadesk
+          chmod +x WaDesk.app/Contents/MacOS/wadesk
+          cp installer/macos/Info.plist WaDesk.app/Contents/Info.plist
+          
+          # Generate native AppIcon.icns
+          mkdir icon.iconset
+          sips -z 16 16     assets/whatsapp.png --out icon.iconset/icon_16x16.png
+          sips -z 32 32     assets/whatsapp.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     assets/whatsapp.png --out icon.iconset/icon_32x32.png
+          sips -z 64 64     assets/whatsapp.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   assets/whatsapp.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256   assets/whatsapp.png --out icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   assets/whatsapp.png --out icon.iconset/icon_256x256.png
+          sips -z 512 512   assets/whatsapp.png --out icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   assets/whatsapp.png --out icon.iconset/icon_512x512.png
+          iconutil -c icns icon.iconset -o WaDesk.app/Contents/Resources/AppIcon.icns
+          
+          # 2. Build DMG (Apple Disk Image Installer)
+          mkdir -p dmg-root
+          cp -r WaDesk.app dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname "WaDesk" -srcfolder dmg-root -ov -format UDZO mac-artifacts/WaDesk-macOS-x86_64.dmg
+          
+          # 3. Zip WaDesk.app
+          zip -r "mac-artifacts/WaDesk-macOS-x86_64.zip" WaDesk.app
+
+      - name: Upload macOS Artifacts
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: mac-artifacts/*
           if-no-files-found: error
 
   release:
