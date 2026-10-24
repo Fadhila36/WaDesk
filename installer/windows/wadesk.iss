@@ -16,9 +16,9 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
 DefaultGroupName={#MyAppName}
-OutputDir=.
+OutputDir=..\..\win-artifacts
 OutputBaseFilename=WaDesk-Setup-x86_64
-SetupIconFile=assets\icon.ico
+SetupIconFile=..\..\assets\icon.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -31,9 +31,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "target\release\wadesk.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "assets\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\wadesk.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\assets\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icon.ico"
