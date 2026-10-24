@@ -1,15 +1,21 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    RegisterHotKey, UnregisterHotKey, MOD_CONTROL, MOD_SHIFT,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
-    GetWindowLongPtrW, PostQuitMessage, RegisterClassExW, SetForegroundWindow,
-    SetWindowLongPtrW, ShowWindow, TranslateMessage, GWLP_USERDATA, MSG,
-    SW_HIDE, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
-    WNDCLASSEXW, CS_HREDRAW, CS_VREDRAW, WM_CLOSE, WM_DESTROY, WM_SIZE,
-    WM_LBUTTONUP, WM_LBUTTONDBLCLK, WM_USER,
+    CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW,
+    GetClientRect, GetCursorPos, GetMessageW, GetWindowLongPtrW, InsertMenuW,
+    LoadIconW, PostQuitMessage, RegisterClassExW, SendMessageW, SetForegroundWindow,
+    SetWindowLongPtrW, ShowWindow, TrackPopupMenu, TranslateMessage, GWLP_USERDATA,
+    HICON, IDI_APPLICATION, MF_BYPOSITION, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE,
+    SW_RESTORE, SW_SHOW, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_RETURNCMD, WINDOW_EX_STYLE,
+    WNDCLASSEXW, WS_OVERLAPPEDWINDOW, CS_HREDRAW, CS_VREDRAW, ICON_BIG, ICON_SMALL,
+    WM_CLOSE, WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP,
+    WM_SETICON, WM_SIZE, WM_USER,
 };
 use crate::error::{Result, WaDeskError};
 use crate::gui::tray::{TrayIcon, WM_TRAYICON};
@@ -19,6 +25,10 @@ use crate::win32::dwm::set_dark_titlebar;
 use crate::win32::qos::set_eco_qos;
 
 pub const WM_DISPATCH_UI: u32 = WM_USER + 100;
+
+pub const HOTKEY_PRIVACY: i32 = 101;
+pub const HOTKEY_OVERLAY: i32 = 102;
+pub const HOTKEY_MINIMIZE: i32 = 103;
 
 pub struct WindowConfig {
     pub title: String,
@@ -39,6 +49,11 @@ impl AppWindow {
             let instance = GetModuleHandleW(None)
                 .map_err(|e| WaDeskError::Win32(format!("GetModuleHandleW failed: {}", e)))?;
 
+            // Load WhatsApp icon embedded by build.rs (ID 1)
+            let hicon = LoadIconW(instance, PCWSTR(1 as *const u16)).unwrap_or_else(|_| {
+                LoadIconW(None, IDI_APPLICATION).unwrap_or(HICON(std::ptr::null_mut()))
+            });
+
             let class_name = w!("WaDeskWindowClass");
 
             let wnd_class = WNDCLASSEXW {
@@ -47,6 +62,8 @@ impl AppWindow {
                 lpfnWndProc: Some(wnd_proc),
                 hInstance: instance.into(),
                 lpszClassName: class_name,
+                hIcon: hicon,
+                hIconSm: hicon,
                 ..Default::default()
             };
 
@@ -69,10 +86,19 @@ impl AppWindow {
                 None,
             ).map_err(|e| WaDeskError::Win32(format!("CreateWindowExW failed: {}", e)))?;
 
+            // Set big & small icon on window frame and taskbar
+            let _ = SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_BIG as usize), LPARAM(hicon.0 as isize));
+            let _ = SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_SMALL as usize), LPARAM(hicon.0 as isize));
+
             set_dark_titlebar(hwnd);
             state.apply_to_hwnd(hwnd);
 
-            let tray = TrayIcon::new(hwnd, &config.title);
+            // Register desktop hotkeys
+            let _ = RegisterHotKey(hwnd, HOTKEY_PRIVACY, MOD_CONTROL | MOD_SHIFT, 0x50); // Ctrl+Shift+P
+            let _ = RegisterHotKey(hwnd, HOTKEY_OVERLAY, MOD_CONTROL | MOD_SHIFT, 0x41); // Ctrl+Shift+A
+            let _ = RegisterHotKey(hwnd, HOTKEY_MINIMIZE, MOD_CONTROL, 0x4D);            // Ctrl+M
+
+            let tray = TrayIcon::new(hwnd, &config.title, hicon);
             let is_visible = Arc::new(AtomicBool::new(true));
 
             Ok(Self {
@@ -122,8 +148,68 @@ impl AppWindow {
 impl Drop for AppWindow {
     fn drop(&mut self) {
         unsafe {
+            let _ = UnregisterHotKey(self.hwnd, HOTKEY_PRIVACY);
+            let _ = UnregisterHotKey(self.hwnd, HOTKEY_OVERLAY);
+            let _ = UnregisterHotKey(self.hwnd, HOTKEY_MINIMIZE);
             SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
         }
+    }
+}
+
+unsafe fn eval_script_on_hwnd(hwnd: HWND, script: &str) {
+    let ctrl_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    if ctrl_ptr != 0 {
+        let ctrl = &*(ctrl_ptr as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller);
+        if let Ok(webview) = ctrl.CoreWebView2() {
+            let wide: Vec<u16> = script.encode_utf16().chain(std::iter::once(0)).collect();
+            let _ = webview.ExecuteScript(PCWSTR(wide.as_ptr()), None);
+        }
+    }
+}
+
+unsafe fn show_tray_popup_menu(hwnd: HWND) {
+    let menu = match CreatePopupMenu() {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+
+    let _ = InsertMenuW(menu, 0, MF_BYPOSITION | MF_STRING, 2001, w!("Buka WaDesk"));
+    let _ = InsertMenuW(menu, 1, MF_BYPOSITION | MF_STRING, 2002, w!("Toggle Privacy Blur (Ctrl+Shift+P)"));
+    let _ = InsertMenuW(menu, 2, MF_BYPOSITION | MF_STRING, 2003, w!("Ganti Akun (Ctrl+Shift+A)"));
+    let _ = InsertMenuW(menu, 3, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+    let _ = InsertMenuW(menu, 4, MF_BYPOSITION | MF_STRING, 2004, w!("Keluar"));
+
+    let mut pt = POINT::default();
+    let _ = GetCursorPos(&mut pt);
+    let _ = SetForegroundWindow(hwnd);
+
+    let cmd = TrackPopupMenu(
+        menu,
+        TPM_RETURNCMD | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+        pt.x,
+        pt.y,
+        0,
+        hwnd,
+        None,
+    );
+    let _ = DestroyMenu(menu);
+
+    match cmd.0 as u32 {
+        2001 => {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetForegroundWindow(hwnd);
+            set_eco_qos(false);
+        }
+        2002 => {
+            eval_script_on_hwnd(hwnd, "window.wadeskPrivacy && window.wadeskPrivacy.toggle();");
+        }
+        2003 => {
+            eval_script_on_hwnd(hwnd, "window.wadeskOverlay && window.wadeskOverlay.open();");
+        }
+        2004 => {
+            PostQuitMessage(0);
+        }
+        _ => {}
     }
 }
 
@@ -144,12 +230,34 @@ unsafe extern "system" fn wnd_proc(
             }
             LRESULT(0)
         }
+        WM_HOTKEY => {
+            match wparam.0 as i32 {
+                HOTKEY_PRIVACY => {
+                    eval_script_on_hwnd(hwnd, "window.wadeskPrivacy && window.wadeskPrivacy.toggle();");
+                }
+                HOTKEY_OVERLAY => {
+                    eval_script_on_hwnd(hwnd, "window.wadeskOverlay && window.wadeskOverlay.open();");
+                }
+                HOTKEY_MINIMIZE => {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                    set_eco_qos(true);
+                }
+                _ => {}
+            }
+            LRESULT(0)
+        }
         WM_TRAYICON => {
-            let evt = lparam.0 as u32;
-            if evt == WM_LBUTTONUP || evt == WM_LBUTTONDBLCLK {
-                let _ = ShowWindow(hwnd, SW_RESTORE);
-                let _ = SetForegroundWindow(hwnd);
-                set_eco_qos(false);
+            let evt = (lparam.0 & 0xFFFF) as u32;
+            match evt {
+                WM_LBUTTONUP | WM_LBUTTONDBLCLK => {
+                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                    let _ = SetForegroundWindow(hwnd);
+                    set_eco_qos(false);
+                }
+                WM_RBUTTONUP => {
+                    show_tray_popup_menu(hwnd);
+                }
+                _ => {}
             }
             LRESULT(0)
         }

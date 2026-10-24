@@ -23,13 +23,14 @@ pub struct TrayIcon {
 }
 
 impl TrayIcon {
-    pub fn new(hwnd: HWND, title: &str) -> Self {
+    pub fn new(hwnd: HWND, title: &str, icon: HICON) -> Self {
         let mut nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: hwnd,
             uID: TRAY_ID,
-            uFlags: NIF_MESSAGE | NIF_TIP,
+            uFlags: NIF_MESSAGE | NIF_TIP | NIF_ICON,
             uCallbackMessage: WM_TRAYICON,
+            hIcon: icon,
             ..Default::default()
         };
 
@@ -53,24 +54,35 @@ impl TrayIcon {
         }
     }
 
-    pub fn show_balloon(&mut self, title: &str, message: &str) {
-        self.nid.uFlags |= NIF_INFO;
-        self.nid.dwInfoFlags = NIIF_INFO;
+    pub fn show_balloon_static(hwnd: HWND, title: &str, message: &str) {
+        let mut nid = NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: hwnd,
+            uID: TRAY_ID,
+            uFlags: NIF_INFO,
+            dwInfoFlags: NIIF_INFO,
+            ..Default::default()
+        };
 
         let w_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let copy_t = w_title.len().min(self.nid.szInfoTitle.len());
-        self.nid.szInfoTitle = [0; 64];
-        self.nid.szInfoTitle[..copy_t].copy_from_slice(&w_title[..copy_t]);
+        let copy_t = w_title.len().min(nid.szInfoTitle.len());
+        nid.szInfoTitle = [0; 64];
+        nid.szInfoTitle[..copy_t].copy_from_slice(&w_title[..copy_t]);
 
         let w_msg: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
-        let copy_m = w_msg.len().min(self.nid.szInfo.len());
-        self.nid.szInfo = [0; 256];
-        self.nid.szInfo[..copy_m].copy_from_slice(&w_msg[..copy_m]);
+        let copy_m = w_msg.len().min(nid.szInfo.len());
+        nid.szInfo = [0; 256];
+        nid.szInfo[..copy_m].copy_from_slice(&w_msg[..copy_m]);
 
         unsafe {
-            let _ = Shell_NotifyIconW(NIM_MODIFY, &self.nid);
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
         }
     }
+
+    pub fn show_balloon(&mut self, title: &str, message: &str) {
+        Self::show_balloon_static(self.hwnd, title, message);
+    }
+
 
     pub fn show_context_menu(&self, is_window_visible: bool, is_privacy_on: bool) -> u32 {
         unsafe {

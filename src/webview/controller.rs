@@ -2,16 +2,22 @@ use std::path::Path;
 use std::time::Duration;
 use serde_json::Value;
 use tokio::sync::mpsc;
-use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+use windows::core::{w, Interface, PCWSTR, PWSTR};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetClientRect, MessageBoxW, IDYES, MB_ICONWARNING, MB_SYSTEMMODAL, MB_YESNO, SW_SHOWNORMAL,
+};
+use windows::Win32::UI::Shell::ShellExecuteW;
 use webview2_com::{
     CoreWebView2EnvironmentOptions,
     CreateCoreWebView2ControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler,
+    NewWindowRequestedEventHandler,
+    WebMessageReceivedEventHandler,
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     CreateCoreWebView2EnvironmentWithOptions,
+    GetAvailableCoreWebView2BrowserVersionString,
     ICoreWebView2, ICoreWebView2Controller, ICoreWebView2EnvironmentOptions,
     ICoreWebView2_19,
     COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
@@ -21,6 +27,44 @@ use crate::error::{Result, WaDeskError};
 use crate::webview::bridge::RpcCoordinator;
 
 pub const WEBVIEW2_BROWSER_ARGS: &str = "--js-flags=--max-old-space-size=512 --renderer-process-limit=1 --process-per-site --disable-site-isolation-trials --disable-gpu --disable-gpu-compositing --enable-low-end-device-mode --disable-features=SitePerProcess,IsolateOrigins,OutOfProcessNetworkService,msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --disable-component-update --no-first-run --disable-sync";
+
+/// Deteksi runtime WebView2; jika tidak ditemukan, tampilkan prompt dialog untuk mengunduh installer resmi.
+pub fn ensure_webview2_installed() -> Result<()> {
+    let mut version = PWSTR(std::ptr::null_mut());
+    let res = unsafe {
+        GetAvailableCoreWebView2BrowserVersionString(PCWSTR::null(), &mut version)
+    };
+
+    if res.is_ok() && !version.is_null() {
+        let _ = webview2_com::CoTaskMemPWSTR::from(version);
+        return Ok(());
+    }
+
+    unsafe {
+        let title = w!("WaDesk - WebView2 Runtime Diperlukan");
+        let text = w!("Microsoft Edge WebView2 Runtime tidak ditemukan pada komputer ini.\n\nWaDesk memerlukan komponen ini untuk menjalankan WhatsApp Web.\nApakah Anda ingin mengunduhnya sekarang dari situs resmi Microsoft?");
+        let btn = MessageBoxW(
+            HWND(std::ptr::null_mut()),
+            text,
+            title,
+            MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL,
+        );
+
+        if btn == IDYES {
+            let url = w!("https://go.microsoft.com/fwlink/p/?LinkId=2124703");
+            let _ = ShellExecuteW(
+                HWND(std::ptr::null_mut()),
+                w!("open"),
+                url,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            );
+        }
+    }
+
+    Err(WaDeskError::WebView2("Microsoft Edge WebView2 Runtime is not installed".to_string()))
+}
 
 /// Host controller yang membungkus ICoreWebView2 dan controller
 pub struct WebViewHost {
@@ -32,6 +76,9 @@ pub struct WebViewHost {
 
 impl WebViewHost {
     pub fn create(hwnd: HWND, user_data_dir: &Path) -> Result<Self> {
+        // 1. Verifikasi WebView2 terpasang
+        ensure_webview2_installed()?;
+
         let (ui_tx, _ui_rx) = mpsc::unbounded_channel();
         let coordinator = RpcCoordinator::new();
 
@@ -93,7 +140,7 @@ impl WebViewHost {
         };
 
         unsafe {
-            let mut bounds = RECT::default();
+            let mut bounds = windows::Win32::Foundation::RECT::default();
             let _ = GetClientRect(hwnd, &mut bounds);
             let _ = controller.SetBounds(bounds);
             let _ = controller.SetIsVisible(true);
@@ -104,6 +151,60 @@ impl WebViewHost {
                 .map_err(|e| WaDeskError::WebView2(format!("Failed to get CoreWebView2: {}", e)))?
         };
 
+        // 2. Navigation Guard: Buka link eksternal di browser default Windows
+        let new_window_handler = NewWindowRequestedEventHandler::create(Box::new(move |_sender, args| {
+            if let Some(args) = args {
+                let mut uri = PWSTR(std::ptr::null_mut());
+                if unsafe { args.Uri(&mut uri) }.is_ok() {
+                    let uri_pwstr = webview2_com::CoTaskMemPWSTR::from(uri);
+                    let url_str = uri_pwstr.to_string();
+                    let _ = unsafe { args.SetHandled(true) };
+                    let wide_url: Vec<u16> = url_str.encode_utf16().chain(std::iter::once(0)).collect();
+                    unsafe {
+                        let _ = ShellExecuteW(
+                            HWND(std::ptr::null_mut()),
+                            w!("open"),
+                            PCWSTR(wide_url.as_ptr()),
+                            PCWSTR::null(),
+                            PCWSTR::null(),
+                            SW_SHOWNORMAL,
+                        );
+                    }
+                }
+            }
+            Ok(())
+        }));
+        let mut new_window_token = windows::Win32::System::WinRT::EventRegistrationToken::default();
+        unsafe {
+            let _ = webview.add_NewWindowRequested(&new_window_handler, &mut new_window_token);
+        }
+
+        // 3. WebMessage Received: Hubungkan event notifikasi ke tray balloon dan response RPC
+        let coord_clone = coordinator.clone();
+        let msg_handler = WebMessageReceivedEventHandler::create(Box::new(move |_sender, args| {
+            if let Some(args) = args {
+                let mut raw = PWSTR(std::ptr::null_mut());
+                if unsafe { args.WebMessageAsJson(&mut raw) }.is_ok() {
+                    let mem = webview2_com::CoTaskMemPWSTR::from(raw);
+                    let json_str = mem.to_string();
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                        if val.get("type").and_then(|t| t.as_str()) == Some("notification") {
+                            let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("WhatsApp");
+                            let body = val.get("body").and_then(|b| b.as_str()).unwrap_or("");
+                            crate::gui::tray::TrayIcon::show_balloon_static(hwnd, title, body);
+                        } else if let Some(rpc_id) = val.get("rpc_id").and_then(|r| r.as_str()).map(|s| s.to_string()) {
+                            coord_clone.resolve(&rpc_id, val);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }));
+        let mut msg_token = windows::Win32::System::WinRT::EventRegistrationToken::default();
+        unsafe {
+            let _ = webview.add_WebMessageReceived(&msg_handler, &mut msg_token);
+        }
+
         let host = Self {
             webview,
             controller,
@@ -111,11 +212,13 @@ impl WebViewHost {
             ui_dispatch_tx: ui_tx,
         };
 
+        // 4. Injeksi polyfill scripts
         let init_scripts = crate::assets::get_init_scripts(&crate::assets::Prefs::default());
         for script in &init_scripts {
             host.add_init_script(script)?;
         }
 
+        // 5. Muat WhatsApp Web
         host.navigate("https://web.whatsapp.com")?;
 
         Ok(host)
@@ -163,7 +266,7 @@ impl WebViewHost {
 
     pub fn resize(&self, hwnd: HWND) {
         unsafe {
-            let mut bounds = RECT::default();
+            let mut bounds = windows::Win32::Foundation::RECT::default();
             let _ = GetClientRect(hwnd, &mut bounds);
             let _ = self.controller.SetBounds(bounds);
         }

@@ -37,3 +37,14 @@ fn test_token_persistence() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[cfg(windows)]
+#[test]
+fn test_dpapi_encryption() {
+    let plain = b"Secret data for testing DPAPI encryption";
+    let encrypted = TokenManager::dpapi_encrypt(plain).expect("DPAPI encrypt should succeed");
+    assert_ne!(encrypted, plain, "Encrypted data must differ from plaintext");
+
+    let decrypted = TokenManager::dpapi_decrypt(&encrypted).expect("DPAPI decrypt should succeed");
+    assert_eq!(decrypted, plain, "Decrypted data must match original plaintext");
+}

@@ -20,12 +20,85 @@ impl TokenManager {
         hex_encode(&bytes)
     }
 
+    #[cfg(windows)]
+    pub fn dpapi_encrypt(data: &[u8]) -> Result<Vec<u8>> {
+        use windows::Win32::Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB};
+        use windows::core::PCWSTR;
+
+        let mut in_blob = CRYPT_INTEGER_BLOB {
+            cbData: data.len() as u32,
+            pbData: data.as_ptr() as *mut u8,
+        };
+        let mut out_blob = CRYPT_INTEGER_BLOB::default();
+
+        unsafe {
+            CryptProtectData(
+                &mut in_blob,
+                PCWSTR::null(),
+                None,
+                None,
+                None,
+                0,
+                &mut out_blob,
+            ).map_err(|e| crate::error::WaDeskError::Crypto(format!("CryptProtectData failed: {}", e)))?;
+
+            let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+            let result = slice.to_vec();
+            windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(out_blob.pbData as *mut _));
+            Ok(result)
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn dpapi_decrypt(cipher: &[u8]) -> Result<Vec<u8>> {
+        use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
+
+        let mut in_blob = CRYPT_INTEGER_BLOB {
+            cbData: cipher.len() as u32,
+            pbData: cipher.as_ptr() as *mut u8,
+        };
+        let mut out_blob = CRYPT_INTEGER_BLOB::default();
+
+        unsafe {
+            CryptUnprotectData(
+                &mut in_blob,
+                None,
+                None,
+                None,
+                None,
+                0,
+                &mut out_blob,
+            ).map_err(|e| crate::error::WaDeskError::Crypto(format!("CryptUnprotectData failed: {}", e)))?;
+
+            let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+            let result = slice.to_vec();
+            windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(out_blob.pbData as *mut _));
+            Ok(result)
+        }
+    }
+
     /// Membaca token yang tersimpan di path, atau menghasilkan token baru dan menyimpannya.
+    /// Menggunakan enkripsi Windows DPAPI untuk keamanan penyimpanan token.
     pub fn get_or_create_token(path: &Path) -> Result<String> {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            let trimmed = content.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_string());
+        if let Ok(bytes) = std::fs::read(path) {
+            #[cfg(windows)]
+            {
+                if let Ok(decrypted) = Self::dpapi_decrypt(&bytes) {
+                    if let Ok(token_str) = String::from_utf8(decrypted) {
+                        let trimmed = token_str.trim().to_string();
+                        if !trimmed.is_empty() {
+                            return Ok(trimmed);
+                        }
+                    }
+                }
+            }
+
+            // Fallback jika file sebelumnya disimpan dalam plaintext
+            if let Ok(content) = String::from_utf8(bytes) {
+                let trimmed = content.trim();
+                if !trimmed.is_empty() {
+                    return Ok(trimmed.to_string());
+                }
             }
         }
 
@@ -34,6 +107,14 @@ impl TokenManager {
         }
 
         let new_token = Self::generate_token();
+        #[cfg(windows)]
+        {
+            if let Ok(encrypted) = Self::dpapi_encrypt(new_token.as_bytes()) {
+                std::fs::write(path, encrypted)?;
+                return Ok(new_token);
+            }
+        }
+
         std::fs::write(path, &new_token)?;
         Ok(new_token)
     }

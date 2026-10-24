@@ -22,6 +22,9 @@ pub enum WaDeskError {
 
     #[error("HTTP request error: {0}")]
     Http(String),
+
+    #[error("Cryptography error: {0}")]
+    Crypto(String),
 }
 
 pub type Result<T> = std::result::Result<T, WaDeskError>;
