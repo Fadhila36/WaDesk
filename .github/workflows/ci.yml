@@ -273,3 +273,12 @@ jobs:
             git commit -m "chore(release): bump version to $CLEAN_VER in Cargo.toml and installers [skip ci]"
             git push origin HEAD:master || git push origin HEAD:main || true
           fi
+
+      - name: Cleanup Workspace & Release Artifacts on VPS
+        if: always()
+        run: |
+          echo "Cleaning up build artifacts and temporary files from Coolify VPS..."
+          rm -rf release-artifacts release_body.md SHA256SUMS.txt
+          # Clean working directory completely to keep VPS disk 100% lean
+          git clean -ffdx -e .env -e .git || true
+          echo "Coolify VPS workspace cleaned successfully."
