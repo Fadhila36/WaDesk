@@ -2,7 +2,7 @@
 name = "wadesk"
 version = "1.0.0"
 edition = "2021"
-authors = ["WaDesk Team"]
+authors = ["Muhammad Fadhila Abiyyu Faris"]
 description = "Lightweight, secure native Windows desktop wrapper for WhatsApp Web"
 
 [lib]

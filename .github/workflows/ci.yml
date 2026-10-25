@@ -195,20 +195,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Determine Version and Auto-Tag
+      - name: Determine Semantic Version and Auto-Tag
         id: vars
         run: |
           git fetch --tags --force
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             TAG_NAME="${{ github.ref_name }}"
           else
-            VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d '"' -f2)
-            BASE_TAG="v${VERSION}"
-            if git rev-parse "$BASE_TAG" >/dev/null 2>&1; then
-              TAG_NAME="${BASE_TAG}-build.${{ github.run_number }}"
-            else
-              TAG_NAME="${BASE_TAG}"
-            fi
+            TAG_NAME=$(python3 .github/scripts/generate_version.py)
             echo "Auto-creating git tag: $TAG_NAME"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -231,11 +225,18 @@ jobs:
           echo "Generated SHA256 Checksums:"
           cat SHA256SUMS.txt
 
+      - name: Prepare Rich Release Notes
+        run: |
+          python3 .github/scripts/generate_version.py --render-notes release_body.md --version "${{ env.TAG_NAME }}"
+          echo "=== Release Notes Preview ==="
+          cat release_body.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           name: "WaDesk ${{ env.TAG_NAME }}"
+          body_path: release_body.md
           files: release-artifacts/*
           generate_release_notes: true
           draft: false
