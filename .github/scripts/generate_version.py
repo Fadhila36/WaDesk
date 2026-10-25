@@ -5,6 +5,8 @@ Reads base version from Cargo.toml, auto-increments SemVer tags based on git his
 and generates structured release notes dynamically from conventional commits.
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import re
