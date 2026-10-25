@@ -9,12 +9,12 @@ WaDesk is a desktop client for WhatsApp Web built with Rust and native platform 
 ## Installation Guide
 
 ### Windows
-- Installer: Download and run `WaDesk-Setup-x86_64.exe` to install WaDesk with Start Menu and desktop shortcuts.
-- Portable: Download `WaDesk-Windows-x86_64.zip`, extract to any folder, and launch `wadesk.exe`.
+- Installer: Download and run `WaDesk-Setup-{{CLEAN_VERSION}}-x86_64.exe` to install WaDesk with Start Menu and desktop shortcuts.
+- Portable: Download `WaDesk-{{CLEAN_VERSION}}-Windows-x86_64.zip`, extract to any folder, and launch `wadesk.exe`.
 
 ### macOS
-- DMG Image: Open `WaDesk-macOS-Universal.dmg` and drag `WaDesk.app` to your `/Applications` directory.
-- Application Archive: Download `WaDesk-macOS-Universal.zip`, extract, and move `WaDesk.app` to `/Applications`.
+- DMG Image: Open `WaDesk-{{CLEAN_VERSION}}-macOS-Universal.dmg` and drag `WaDesk.app` to your `/Applications` directory.
+- Application Archive: Download `WaDesk-{{CLEAN_VERSION}}-macOS-Universal.zip`, extract, and move `WaDesk.app` to `/Applications`.
 - Supports macOS 11 (Big Sur) and newer on both Apple Silicon (M1-M4) and Intel systems.
 
 ### Linux
@@ -24,8 +24,8 @@ WaDesk is a desktop client for WhatsApp Web built with Rust and native platform 
   ```
 - Other Linux distributions (Arch, Fedora, openSUSE):
   ```bash
-  tar -xzf WaDesk-Linux-x86_64.tar.gz
-  cd WaDesk-Linux-x86_64
+  tar -xzf WaDesk-{{CLEAN_VERSION}}-Linux-x86_64.tar.gz
+  cd WaDesk-{{CLEAN_VERSION}}-Linux-x86_64
   sudo ./install.sh
   ```
 

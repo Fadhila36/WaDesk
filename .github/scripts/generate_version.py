@@ -234,6 +234,7 @@ def render_release_notes(version: str, output_path: str):
     changelog = generate_dynamic_changelog(version)
 
     rendered = template.replace("{{VERSION}}", version)
+    rendered = rendered.replace("{{CLEAN_VERSION}}", clean_ver)
     rendered = rendered.replace("{{CHANGELOG}}", changelog)
     rendered = rendered.replace("{{DEB_FILENAME}}", deb_filename)
 

@@ -85,7 +85,7 @@ jobs:
           cp target/release/wadesk.exe dist/
           cp assets/icon.ico dist/
           cp README.md dist/
-          Compress-Archive -Path dist/* -DestinationPath "win-artifacts/WaDesk-Windows-x86_64.zip"
+          Compress-Archive -Path dist/* -DestinationPath "win-artifacts/WaDesk-${{ env.RESOLVED_VER }}-Windows-x86_64.zip"
 
       - name: Upload Windows Artifacts
         if: matrix.os == 'windows-latest'
@@ -132,7 +132,7 @@ jobs:
           chmod +x dist/install.sh dist/uninstall.sh
           cp assets/whatsapp.svg dist/wadesk.svg
           cp README.md dist/
-          tar -czvf "linux-artifacts/WaDesk-Linux-x86_64.tar.gz" -C dist .
+          tar -czvf "linux-artifacts/WaDesk-${{ env.RESOLVED_VER }}-Linux-x86_64.tar.gz" -C dist .
 
       - name: Upload Linux Artifacts
         if: matrix.os == 'ubuntu-latest'
@@ -184,10 +184,10 @@ jobs:
           mkdir -p dmg-root
           cp -r WaDesk.app dmg-root/
           ln -s /Applications dmg-root/Applications
-          hdiutil create -volname "WaDesk" -srcfolder dmg-root -ov -format UDZO mac-artifacts/WaDesk-macOS-Universal.dmg
+          hdiutil create -volname "WaDesk" -srcfolder dmg-root -ov -format UDZO "mac-artifacts/WaDesk-${{ env.RESOLVED_VER }}-macOS-Universal.dmg"
           
           # 4. Zip Universal WaDesk.app
-          zip -r "mac-artifacts/WaDesk-macOS-Universal.zip" WaDesk.app
+          zip -r "mac-artifacts/WaDesk-${{ env.RESOLVED_VER }}-macOS-Universal.zip" WaDesk.app
 
       - name: Upload macOS Artifacts
         if: matrix.os == 'macos-latest'
