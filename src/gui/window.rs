@@ -11,18 +11,56 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, GetCursorPos, GetMessageW, GetWindowLongPtrW, InsertMenuW,
     LoadIconW, PostQuitMessage, RegisterClassExW, SendMessageW, SetForegroundWindow,
     SetWindowLongPtrW, ShowWindow, TrackPopupMenu, TranslateMessage, GWLP_USERDATA,
-    HICON, IDI_APPLICATION, MF_BYPOSITION, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE,
-    SW_RESTORE, SW_SHOW, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_RETURNCMD, WINDOW_EX_STYLE,
-    WNDCLASSEXW, WS_OVERLAPPEDWINDOW, CS_HREDRAW, CS_VREDRAW, ICON_BIG, ICON_SMALL,
-    WM_CLOSE, WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP,
-    WM_SETICON, WM_SIZE, WM_USER,
+    HICON, IDI_APPLICATION, MF_BYPOSITION, MF_CHECKED, MF_SEPARATOR, MF_STRING,
+    MF_UNCHECKED, MSG, SIZE_MINIMIZED, SW_HIDE, SW_RESTORE, SW_SHOW, TPM_BOTTOMALIGN,
+    TPM_LEFTALIGN, TPM_RETURNCMD, WINDOW_EX_STYLE, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+    CS_HREDRAW, CS_VREDRAW, ICON_BIG, ICON_SMALL, WM_CLOSE, WM_DESTROY, WM_HOTKEY,
+    WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP, WM_SETICON, WM_SIZE, WM_USER,
 };
+use crate::config::UserPreferences;
 use crate::error::{Result, WaDeskError};
 use crate::gui::tray::{TrayIcon, WM_TRAYICON};
 use crate::gui::state::WindowState;
 use crate::webview::controller::WebViewHost;
 use crate::win32::dwm::set_dark_titlebar;
 use crate::win32::qos::set_eco_qos;
+
+static PREFS: std::sync::Mutex<Option<UserPreferences>> = std::sync::Mutex::new(None);
+static PREFS_PATH: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+pub fn init_preferences(path: &std::path::Path) {
+    let prefs = UserPreferences::load_or_default(path);
+    *PREFS.lock().unwrap() = Some(prefs);
+    *PREFS_PATH.lock().unwrap() = Some(path.to_path_buf());
+}
+
+pub fn get_preferences() -> UserPreferences {
+    PREFS.lock().unwrap().clone().unwrap_or_default()
+}
+
+pub fn save_current_preferences() {
+    let prefs = PREFS.lock().unwrap().clone();
+    let path = PREFS_PATH.lock().unwrap().clone();
+    if let (Some(prefs), Some(path)) = (prefs, path) {
+        let _ = prefs.save(&path);
+    }
+}
+
+pub fn apply_preferences_to_hwnd(hwnd: HWND) {
+    let prefs = get_preferences();
+    let script = format!(
+        "window.wadeskPrivacy && window.wadeskPrivacy.set({}); \
+         window.wadeskSetMediaBlur && window.wadeskSetMediaBlur({}); \
+         window.wadeskSetAutoBlur && window.wadeskSetAutoBlur({}, {});",
+        prefs.privacy_blur,
+        prefs.media_blur,
+        prefs.auto_blur_inactive,
+        prefs.auto_blur_timeout_secs
+    );
+    unsafe {
+        eval_script_on_hwnd(hwnd, &script);
+    }
+}
 
 pub const WM_DISPATCH_UI: u32 = WM_USER + 100;
 
@@ -115,6 +153,7 @@ impl AppWindow {
             let ctrl_ptr = &webview.controller as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
             SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, ctrl_ptr as isize);
         }
+        apply_preferences_to_hwnd(self.hwnd);
         self.webview = Some(webview);
     }
 
@@ -173,11 +212,25 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
         Err(_) => return,
     };
 
+    let prefs = get_preferences();
+
     let _ = InsertMenuW(menu, 0, MF_BYPOSITION | MF_STRING, 2001, w!("Buka WaDesk"));
-    let _ = InsertMenuW(menu, 1, MF_BYPOSITION | MF_STRING, 2002, w!("Toggle Privacy Blur (Ctrl+Shift+P)"));
-    let _ = InsertMenuW(menu, 2, MF_BYPOSITION | MF_STRING, 2003, w!("Ganti Akun (Ctrl+Shift+A)"));
-    let _ = InsertMenuW(menu, 3, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = InsertMenuW(menu, 4, MF_BYPOSITION | MF_STRING, 2004, w!("Keluar"));
+    let _ = InsertMenuW(menu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+
+    let p_flag = if prefs.privacy_blur { MF_CHECKED } else { MF_UNCHECKED };
+    let m_flag = if prefs.media_blur { MF_CHECKED } else { MF_UNCHECKED };
+    let a_flag = if prefs.auto_blur_inactive { MF_CHECKED } else { MF_UNCHECKED };
+    let mute_flag = if prefs.mute_on_minimize { MF_CHECKED } else { MF_UNCHECKED };
+
+    let _ = InsertMenuW(menu, 2, MF_BYPOSITION | MF_STRING | p_flag, 2002, w!("Privacy Blur (Ctrl+Shift+P)"));
+    let _ = InsertMenuW(menu, 3, MF_BYPOSITION | MF_STRING | m_flag, 2005, w!("Media Blur (Hover to Reveal)"));
+    let _ = InsertMenuW(menu, 4, MF_BYPOSITION | MF_STRING | a_flag, 2006, w!("Auto-Blur saat Inaktif (30s)"));
+    let _ = InsertMenuW(menu, 5, MF_BYPOSITION | MF_STRING | mute_flag, 2007, w!("Mute Audio saat Minimized"));
+
+    let _ = InsertMenuW(menu, 6, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+    let _ = InsertMenuW(menu, 7, MF_BYPOSITION | MF_STRING, 2003, w!("Ganti Akun (Ctrl+Shift+A)"));
+    let _ = InsertMenuW(menu, 8, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+    let _ = InsertMenuW(menu, 9, MF_BYPOSITION | MF_STRING, 2004, w!("Keluar"));
 
     let mut pt = POINT::default();
     let _ = GetCursorPos(&mut pt);
@@ -199,15 +252,50 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
             let _ = ShowWindow(hwnd, SW_RESTORE);
             let _ = SetForegroundWindow(hwnd);
             set_eco_qos(false);
+            if prefs.mute_on_minimize {
+                crate::win32::audio::set_audio_muted(false);
+            }
         }
         2002 => {
-            eval_script_on_hwnd(hwnd, "window.wadeskPrivacy && window.wadeskPrivacy.toggle();");
+            let mut p = PREFS.lock().unwrap();
+            if let Some(ref mut prefs) = *p {
+                prefs.privacy_blur = !prefs.privacy_blur;
+            }
+            drop(p);
+            save_current_preferences();
+            apply_preferences_to_hwnd(hwnd);
         }
         2003 => {
             eval_script_on_hwnd(hwnd, "window.wadeskOverlay && window.wadeskOverlay.open();");
         }
         2004 => {
             PostQuitMessage(0);
+        }
+        2005 => {
+            let mut p = PREFS.lock().unwrap();
+            if let Some(ref mut prefs) = *p {
+                prefs.media_blur = !prefs.media_blur;
+            }
+            drop(p);
+            save_current_preferences();
+            apply_preferences_to_hwnd(hwnd);
+        }
+        2006 => {
+            let mut p = PREFS.lock().unwrap();
+            if let Some(ref mut prefs) = *p {
+                prefs.auto_blur_inactive = !prefs.auto_blur_inactive;
+            }
+            drop(p);
+            save_current_preferences();
+            apply_preferences_to_hwnd(hwnd);
+        }
+        2007 => {
+            let mut p = PREFS.lock().unwrap();
+            if let Some(ref mut prefs) = *p {
+                prefs.mute_on_minimize = !prefs.mute_on_minimize;
+            }
+            drop(p);
+            save_current_preferences();
         }
         _ => {}
     }
@@ -221,6 +309,18 @@ unsafe extern "system" fn wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_SIZE => {
+            if wparam.0 == SIZE_MINIMIZED as usize {
+                if get_preferences().mute_on_minimize {
+                    crate::win32::audio::set_audio_muted(true);
+                }
+                set_eco_qos(true);
+            } else {
+                if get_preferences().mute_on_minimize {
+                    crate::win32::audio::set_audio_muted(false);
+                }
+                set_eco_qos(false);
+            }
+
             let ctrl_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
             if ctrl_ptr != 0 {
                 let ctrl = &*(ctrl_ptr as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller);
@@ -233,7 +333,13 @@ unsafe extern "system" fn wnd_proc(
         WM_HOTKEY => {
             match wparam.0 as i32 {
                 HOTKEY_PRIVACY => {
-                    eval_script_on_hwnd(hwnd, "window.wadeskPrivacy && window.wadeskPrivacy.toggle();");
+                    let mut p = PREFS.lock().unwrap();
+                    if let Some(ref mut prefs) = *p {
+                        prefs.privacy_blur = !prefs.privacy_blur;
+                    }
+                    drop(p);
+                    save_current_preferences();
+                    apply_preferences_to_hwnd(hwnd);
                 }
                 HOTKEY_OVERLAY => {
                     eval_script_on_hwnd(hwnd, "window.wadeskOverlay && window.wadeskOverlay.open();");
@@ -241,6 +347,9 @@ unsafe extern "system" fn wnd_proc(
                 HOTKEY_MINIMIZE => {
                     let _ = ShowWindow(hwnd, SW_HIDE);
                     set_eco_qos(true);
+                    if get_preferences().mute_on_minimize {
+                        crate::win32::audio::set_audio_muted(true);
+                    }
                 }
                 _ => {}
             }
@@ -253,6 +362,9 @@ unsafe extern "system" fn wnd_proc(
                     let _ = ShowWindow(hwnd, SW_RESTORE);
                     let _ = SetForegroundWindow(hwnd);
                     set_eco_qos(false);
+                    if get_preferences().mute_on_minimize {
+                        crate::win32::audio::set_audio_muted(false);
+                    }
                 }
                 WM_RBUTTONUP => {
                     show_tray_popup_menu(hwnd);
@@ -265,6 +377,9 @@ unsafe extern "system" fn wnd_proc(
             // Minimize to tray on close button click
             let _ = ShowWindow(hwnd, SW_HIDE);
             set_eco_qos(true);
+            if get_preferences().mute_on_minimize {
+                crate::win32::audio::set_audio_muted(true);
+            }
             LRESULT(0)
         }
         WM_DESTROY => {

@@ -29,7 +29,7 @@ jobs:
 
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: WaDesk-macOS-x86_64
+            artifact_name: WaDesk-macOS-Universal
 
     steps:
       - name: Checkout repository
@@ -135,12 +135,23 @@ jobs:
         run: |
           mkdir mac-artifacts
           
-          # 1. Build WaDesk.app bundle
+          # 1. Add Apple Silicon target and cross-compile both architectures
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          
+          # 2. Build WaDesk.app bundle with Universal 2 (Fat) binary
           mkdir -p WaDesk.app/Contents/MacOS
           mkdir -p WaDesk.app/Contents/Resources
           
-          cp target/release/wadesk WaDesk.app/Contents/MacOS/wadesk
+          lipo -create -output WaDesk.app/Contents/MacOS/wadesk \
+            target/aarch64-apple-darwin/release/wadesk \
+            target/x86_64-apple-darwin/release/wadesk
           chmod +x WaDesk.app/Contents/MacOS/wadesk
+          
+          echo "Verified Universal Binary architecture slices:"
+          lipo -info WaDesk.app/Contents/MacOS/wadesk
+          
           cp installer/macos/Info.plist WaDesk.app/Contents/Info.plist
           
           # Generate native AppIcon.icns
@@ -156,14 +167,14 @@ jobs:
           sips -z 512 512   assets/whatsapp.png --out icon.iconset/icon_512x512.png
           iconutil -c icns icon.iconset -o WaDesk.app/Contents/Resources/AppIcon.icns
           
-          # 2. Build DMG (Apple Disk Image Installer)
+          # 3. Build Universal DMG (Apple Disk Image Installer for M1-M4 & Intel)
           mkdir -p dmg-root
           cp -r WaDesk.app dmg-root/
           ln -s /Applications dmg-root/Applications
-          hdiutil create -volname "WaDesk" -srcfolder dmg-root -ov -format UDZO mac-artifacts/WaDesk-macOS-x86_64.dmg
+          hdiutil create -volname "WaDesk" -srcfolder dmg-root -ov -format UDZO mac-artifacts/WaDesk-macOS-Universal.dmg
           
-          # 3. Zip WaDesk.app
-          zip -r "mac-artifacts/WaDesk-macOS-x86_64.zip" WaDesk.app
+          # 4. Zip Universal WaDesk.app
+          zip -r "mac-artifacts/WaDesk-macOS-Universal.zip" WaDesk.app
 
       - name: Upload macOS Artifacts
         if: matrix.os == 'macos-latest'

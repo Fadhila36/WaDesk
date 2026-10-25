@@ -41,3 +41,25 @@ fn test_accounts_manifest_serialization() {
     let deserialized: AccountsManifest = serde_json::from_str(&json).expect("deserialize should succeed");
     assert_eq!(deserialized.accounts.len(), 2);
 }
+
+#[test]
+fn test_user_preferences_defaults_and_roundtrip() {
+    use wadesk::config::UserPreferences;
+
+    let default_prefs = UserPreferences::default();
+    assert!(!default_prefs.privacy_blur);
+    assert!(default_prefs.mute_on_minimize);
+    assert!(default_prefs.auto_blur_inactive);
+    assert_eq!(default_prefs.auto_blur_timeout_secs, 30);
+    assert!(!default_prefs.media_blur);
+
+    let json = serde_json::to_string_pretty(&default_prefs).expect("serialize should succeed");
+    let mut deserialized: UserPreferences = serde_json::from_str(&json).expect("deserialize should succeed");
+    assert_eq!(deserialized, default_prefs);
+
+    deserialized.media_blur = true;
+    deserialized.privacy_blur = true;
+    assert!(deserialized.media_blur);
+    assert!(deserialized.privacy_blur);
+}
+

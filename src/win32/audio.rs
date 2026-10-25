@@ -33,3 +33,27 @@ pub fn rename_audio_session(label: &str) {
         CoUninitialize();
     });
 }
+
+/// Mengatur status mute pada sesi audio WaDesk di Windows Core Audio
+pub fn set_audio_muted(muted: bool) {
+    std::thread::spawn(move || unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+
+        if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(
+            &MMDeviceEnumerator,
+            None,
+            CLSCTX_ALL,
+        ) {
+            if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
+                if let Ok(session_manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
+                    if let Ok(simple_volume) = session_manager.GetSimpleAudioVolume(None, 0) {
+                        let _ = simple_volume.SetMute(windows::Win32::Foundation::BOOL::from(muted), std::ptr::null());
+                    }
+                }
+            }
+        }
+
+        CoUninitialize();
+    });
+}
+

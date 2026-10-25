@@ -108,6 +108,7 @@ mod windows_app {
             );
         }
 
+        wadesk::gui::window::init_preferences(&paths.prefs_file);
         let window_state = WindowState::load_or_default(&paths.window_state_file);
         let mut window = AppWindow::create(
             WindowConfig {

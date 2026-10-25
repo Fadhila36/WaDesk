@@ -1,6 +1,7 @@
-// Privacy blur mode for WhatsApp Web
+// Privacy blur mode, Media blur, and Auto-Lock for WhatsApp Web
 (function () {
     var CSS = `
+        /* Text & Chat Content Privacy Blur */
         html[data-wadesk-privacy="on"] [data-testid="cell-frame-title"],
         html[data-wadesk-privacy="on"] [data-testid="last-msg-status"],
         html[data-wadesk-privacy="on"] span[title]:not([data-testid]),
@@ -19,6 +20,24 @@
             filter: none !important;
             user-select: text !important;
         }
+
+        /* Media Blur (Hover-to-Reveal) */
+        html[data-wadesk-media-blur="on"] img:not([alt*="avatar"]):not([src*="avatar"]),
+        html[data-wadesk-media-blur="on"] video,
+        html[data-wadesk-media-blur="on"] [data-testid="image-thumb"],
+        html[data-wadesk-media-blur="on"] [data-testid="video-thumb"],
+        html[data-wadesk-media-blur="on"] [data-testid="audio-player"] {
+            filter: blur(14px) !important;
+            transition: filter 0.25s ease !important;
+        }
+
+        html[data-wadesk-media-blur="on"] img:not([alt*="avatar"]):not([src*="avatar"]):hover,
+        html[data-wadesk-media-blur="on"] video:hover,
+        html[data-wadesk-media-blur="on"] [data-testid="image-thumb"]:hover,
+        html[data-wadesk-media-blur="on"] [data-testid="video-thumb"]:hover,
+        html[data-wadesk-media-blur="on"] [data-testid="audio-player"]:hover {
+            filter: none !important;
+        }
     `;
 
     function init() {
@@ -36,17 +55,68 @@
 
         window.wadeskPrivacyApply = apply;
 
-        // Pintasan keyboard Ctrl + Shift + B untuk toggle privacy blur
+        // Auto-blur on inactivity / blur
+        var autoBlurTimer = null;
+        var autoBlurActive = false;
+        var autoBlurSeconds = 30;
+
+        function resetAutoBlurTimer() {
+            if (autoBlurTimer) {
+                clearTimeout(autoBlurTimer);
+                autoBlurTimer = null;
+            }
+        }
+
+        window.addEventListener('blur', function () {
+            if (!autoBlurActive) return;
+            resetAutoBlurTimer();
+            autoBlurTimer = setTimeout(function () {
+                apply(true, 'hover');
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'privacy_toggle', enabled: true });
+                }
+            }, autoBlurSeconds * 1000);
+        });
+
+        window.addEventListener('focus', function () {
+            resetAutoBlurTimer();
+        });
+
+        window.wadeskSetAutoBlur = function (enabled, secs) {
+            autoBlurActive = !!enabled;
+            if (secs && secs > 0) autoBlurSeconds = secs;
+            resetAutoBlurTimer();
+        };
+
+        window.wadeskSetMediaBlur = function (enabled) {
+            if (enabled) {
+                html.setAttribute('data-wadesk-media-blur', 'on');
+            } else {
+                html.removeAttribute('data-wadesk-media-blur');
+            }
+        };
+
+        window.wadeskPrivacy = {
+            toggle: function () {
+                var next = html.getAttribute('data-wadesk-privacy') !== 'on';
+                apply(next, 'hover');
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'privacy_toggle', enabled: next });
+                }
+                return next;
+            },
+            set: function (on) {
+                apply(on, 'hover');
+            }
+        };
+
+        // Pintasan keyboard Ctrl + Shift + P atau Ctrl + Shift + B untuk toggle privacy blur
         document.addEventListener('keydown', function (ev) {
             if (!ev.ctrlKey || !ev.shiftKey) { return; }
-            if (ev.key !== 'B' && ev.key !== 'b') { return; }
+            if (ev.key !== 'P' && ev.key !== 'p' && ev.key !== 'B' && ev.key !== 'b') { return; }
             ev.preventDefault();
             ev.stopPropagation();
-            var next = html.getAttribute('data-wadesk-privacy') !== 'on';
-            apply(next, 'hover');
-            if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-                window.chrome.webview.postMessage({ type: 'privacy_toggle', enabled: next });
-            }
+            window.wadeskPrivacy.toggle();
         }, true);
     }
 

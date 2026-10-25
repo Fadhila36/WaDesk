@@ -161,3 +161,48 @@ impl AccountsManifest {
         self.accounts.iter().find(|a| a.id == id)
     }
 }
+
+/// Preferensi dan konfigurasi fitur interaktif pengguna
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserPreferences {
+    pub privacy_blur: bool,
+    pub mute_on_minimize: bool,
+    pub auto_blur_inactive: bool,
+    pub auto_blur_timeout_secs: u64,
+    pub media_blur: bool,
+}
+
+impl Default for UserPreferences {
+    fn default() -> Self {
+        Self {
+            privacy_blur: false,
+            mute_on_minimize: true,
+            auto_blur_inactive: true,
+            auto_blur_timeout_secs: 30,
+            media_blur: false,
+        }
+    }
+}
+
+impl UserPreferences {
+    pub fn load_or_default(path: &Path) -> Self {
+        if let Ok(bytes) = std::fs::read(path) {
+            if let Ok(prefs) = serde_json::from_slice::<UserPreferences>(&bytes) {
+                return prefs;
+            }
+        }
+        let default_prefs = Self::default();
+        let _ = default_prefs.save(path);
+        default_prefs
+    }
+
+    pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+}
+
