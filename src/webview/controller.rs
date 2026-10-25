@@ -13,6 +13,7 @@ use webview2_com::{
     CreateCoreWebView2ControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler,
     NewWindowRequestedEventHandler,
+    PermissionRequestedEventHandler,
     WebMessageReceivedEventHandler,
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -22,11 +23,15 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2_19,
     COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
     COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+    COREWEBVIEW2_PERMISSION_KIND_CAMERA,
+    COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
+    COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
+    COREWEBVIEW2_PERMISSION_STATE_ALLOW,
 };
 use crate::error::{Result, WaDeskError};
 use crate::webview::bridge::RpcCoordinator;
 
-pub const WEBVIEW2_BROWSER_ARGS: &str = "--js-flags=--max-old-space-size=512 --renderer-process-limit=1 --process-per-site --disable-site-isolation-trials --disable-gpu --disable-gpu-compositing --enable-low-end-device-mode --disable-features=SitePerProcess,IsolateOrigins,OutOfProcessNetworkService,msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --disable-component-update --no-first-run --disable-sync";
+pub const WEBVIEW2_BROWSER_ARGS: &str = "--js-flags=--max-old-space-size=512 --renderer-process-limit=1 --process-per-site --disable-site-isolation-trials --disable-features=SitePerProcess,IsolateOrigins,OutOfProcessNetworkService,msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --disable-component-update --no-first-run --disable-sync";
 
 /// Deteksi runtime WebView2; jika tidak ditemukan, tampilkan prompt dialog untuk mengunduh installer resmi.
 pub fn ensure_webview2_installed() -> Result<()> {
@@ -177,6 +182,32 @@ impl WebViewHost {
         let mut new_window_token = windows::Win32::System::WinRT::EventRegistrationToken::default();
         unsafe {
             let _ = webview.add_NewWindowRequested(&new_window_handler, &mut new_window_token);
+        }
+
+        // 2b. Permission Request Handler: Izinkan otomatis Mikrofon & Kamera untuk WebRTC Call WhatsApp Web
+        let permission_handler = PermissionRequestedEventHandler::create(Box::new(move |_sender, args| {
+            if let Some(args) = args {
+                let mut kind = webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PERMISSION_KIND(0);
+                if unsafe { args.PermissionKind(&mut kind) }.is_ok() {
+                    if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE
+                        || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA
+                        || kind == COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS
+                    {
+                        let _ = unsafe { args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW) };
+                    }
+                }
+            }
+            Ok(())
+        }));
+        let mut perm_token = windows::Win32::System::WinRT::EventRegistrationToken::default();
+        unsafe {
+            let _ = webview.add_PermissionRequested(&permission_handler, &mut perm_token);
+        }
+
+        // 2c. Pengaturan WebView2 untuk Rilis Publik (Matikan DevTools pada release build, nonaktifkan status bar)
+        if let Ok(settings) = unsafe { webview.Settings() } {
+            let _ = unsafe { settings.SetAreDevToolsEnabled(cfg!(debug_assertions)) };
+            let _ = unsafe { settings.SetIsStatusBarEnabled(false) };
         }
 
         // 3. WebMessage Received: Hubungkan event notifikasi ke tray balloon dan response RPC
