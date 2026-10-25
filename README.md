@@ -50,22 +50,80 @@ Unlike typical Electron-based desktop wrappers that consume 200MB+ disk space an
 
 ## 🤖 MCP / AI Agent Access
 
-Each running profile of WaDesk exposes an embedded **Model Context Protocol (MCP)** server on `http://127.0.0.1:5987` (or fallback port):
+WaDesk dilengkapi dengan server bawaan **Model Context Protocol (MCP)** (protokol standar komunikasi AI Agent ke tools desktop). Setiap profil WaDesk yang berjalan otomatis membuka endpoint loopback lokal yang aman di `http://127.0.0.1:5987/mcp` (atau fallback port jika 5987 terpakai).
 
-The endpoint URL and encrypted bearer token are securely managed at:
+### 🔑 Autentikasi & Lokasi Token
+URL endpoint dan token otentikasi disimpan secara otomatis di:
 ```text
-%APPDATA%\WaDesk\mcp.json
-%APPDATA%\WaDesk\mcp_token
+%APPDATA%\WaDesk\mcp.json     # Berisi endpoint URL dan bearer token
+%APPDATA%\WaDesk\mcp_token    # Token aman terenkripsi Windows DPAPI
 ```
 
-Supported MCP tools for AI agents:
-* `app_status`
-* `list_chats`
-* `open_chat`
-* `read_messages`
-* `conversation_summary`
-* `send_message`
-* `export_chat`
+Isi file `%APPDATA%\WaDesk\mcp.json`:
+```json
+{
+  "url": "http://127.0.0.1:5987/mcp",
+  "token": "wadesk_sec_xxxxxxxxxxxxxxxx"
+}
+```
+
+---
+
+### 📖 Panduan Menghubungkan ke AI Tools & IDE
+
+#### 1. Claude for Desktop (`claude_desktop_config.json`)
+Tambahkan konfigurasi berikut ke file konfigurasi Claude Desktop Anda (`%APPDATA%\Claude\claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "wadesk": {
+      "command": "curl",
+      "args": [
+        "-s",
+        "-X", "POST",
+        "http://127.0.0.1:5987/mcp",
+        "-H", "Content-Type: application/json",
+        "-H", "Authorization: Bearer <TOKEN_DARI_MCP_JSON>"
+      ]
+    }
+  }
+}
+```
+
+#### 2. Antigravity IDE / Cursor / Roo Code / Cline
+Gunakan konfigurasi server MCP berbasis HTTP/SSE atau loopback client dengan bearer token:
+- **Server URL:** `http://127.0.0.1:5987/mcp`
+- **Method:** `POST`
+- **Headers:**
+  - `Content-Type: application/json`
+  - `Authorization: Bearer <TOKEN_DARI_MCP_JSON>`
+
+#### 3. Tes Langsung via Terminal (PowerShell / cURL)
+Anda dapat mencoba memeriksa daftar tools yang tersedia secara langsung:
+```powershell
+# Ambil token dari mcp.json
+$mcp = Get-Content "$env:APPDATA\WaDesk\mcp.json" | ConvertFrom-Json
+
+# Request tools list via JSON-RPC 2.0
+curl -X POST $mcp.url `
+  -H "Content-Type: application/json" `
+  -H "Authorization: Bearer $($mcp.token)" `
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+---
+
+### 🛠️ Daftar MCP Tools yang Tersedia untuk AI Agent
+
+| Tool | Deskripsi | Parameter |
+| :--- | :--- | :--- |
+| `app_status` | Memeriksa status aplikasi, nama akun profil aktif, dan koneksi WhatsApp | `{}` |
+| `list_chats` | Menampilkan daftar chat terbaru, nama kontak, pesan terakhir, dan unread badge | `{}` |
+| `open_chat` | Membuka percakapan berdasarkan nama kontak / nomor obrolan | `{"name": "Nama Kontak"}` |
+| `read_messages` | Membaca pesan-pesan terbaru dari chat yang sedang dibuka | `{"limit": 50}` (default: 50) |
+| `conversation_summary` | Mengambil data rangkuman obrolan aktif untuk keperluan analisis agent | `{"limit": 50}` |
+| `send_message` | Mengirim pesan teks ke percakapan yang sedang aktif | `{"text": "Pesan yang ingin dikirim"}` |
+| `export_chat` | Mengekspor riwayat percakapan yang sedang dibuka | `{"limit": 100}` |
 
 ---
 
