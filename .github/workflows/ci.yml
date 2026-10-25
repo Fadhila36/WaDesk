@@ -2,7 +2,11 @@ name: CI/CD Pipeline
 
 on:
   push:
-    tags: [ 'v*' ]
+    branches:
+      - master
+      - main
+    tags:
+      - 'v*'
   pull_request:
     paths:
       - 'src/**'
