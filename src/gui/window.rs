@@ -14,8 +14,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     HICON, IDI_APPLICATION, MF_BYPOSITION, MF_CHECKED, MF_SEPARATOR, MF_STRING,
     MF_UNCHECKED, MSG, SIZE_MINIMIZED, SW_HIDE, SW_RESTORE, SW_SHOW, TPM_BOTTOMALIGN,
     TPM_LEFTALIGN, TPM_RETURNCMD, WINDOW_EX_STYLE, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
-    CS_HREDRAW, CS_VREDRAW, ICON_BIG, ICON_SMALL, WM_CLOSE, WM_DESTROY, WM_HOTKEY,
-    WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP, WM_SETICON, WM_SIZE, WM_USER,
+    CS_HREDRAW, CS_VREDRAW, ICON_BIG, ICON_SMALL, WA_INACTIVE, WM_ACTIVATE, WM_CLOSE,
+    WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONUP, WM_SETICON,
+    WM_SIZE, WM_USER,
 };
 use crate::config::UserPreferences;
 use crate::error::{Result, WaDeskError};
@@ -308,6 +309,17 @@ unsafe extern "system" fn wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        WM_ACTIVATE => {
+            let active_state = (wparam.0 & 0xFFFF) as u32;
+            if active_state == WA_INACTIVE {
+                // Saat jendela kehilangan fokus (misal Alt+Tab ke aplikasi lain)
+                eval_script_on_hwnd(hwnd, "window.wadeskOnWindowBlur && window.wadeskOnWindowBlur();");
+            } else {
+                // Saat jendela mendapatkan kembali fokus
+                eval_script_on_hwnd(hwnd, "window.wadeskOnWindowFocus && window.wadeskOnWindowFocus();");
+            }
+            LRESULT(0)
+        }
         WM_SIZE => {
             if wparam.0 == SIZE_MINIMIZED as usize {
                 if get_preferences().mute_on_minimize {

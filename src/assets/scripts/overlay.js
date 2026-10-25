@@ -1,19 +1,32 @@
 // Account switcher overlay UI in Shadow DOM
 (function () {
     var CSS = `
+        /* Reposisi FAB ke pojok kanan bawah dengan desain subtle pill/badge modern */
         .wadesk-fab {
-            position: fixed; left: 14px; bottom: 18px; width: 40px; height: 40px;
-            border-radius: 50%; background: #202c33; color: #e9edef; border: 1px solid #2a3942;
-            cursor: pointer; font: 600 14px system-ui, sans-serif; display: flex;
-            align-items: center; justify-content: center; opacity: .8; box-sizing: border-box;
-            z-index: 999999; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.2s;
+            position: fixed; right: 20px; bottom: 20px; height: 32px; padding: 0 12px;
+            border-radius: 16px; background: rgba(32, 44, 51, 0.75); color: #8696a0; border: 1px solid rgba(42, 57, 66, 0.8);
+            backdrop-filter: blur(8px); cursor: pointer; font: 500 12px system-ui, sans-serif; display: flex;
+            align-items: center; justify-content: center; gap: 6px; box-sizing: border-box;
+            z-index: 999999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            user-select: none;
         }
-        .wadesk-fab:hover { opacity: 1; background: #2a3942; transform: scale(1.05); }
+        .wadesk-fab:hover {
+            background: rgba(42, 57, 66, 0.95); color: #e9edef; transform: translateY(-2px);
+            border-color: #00a884; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        }
+        .wadesk-fab-icon {
+            font-size: 13px; color: #00a884;
+        }
         .wadesk-panel {
-            position: fixed; left: 14px; bottom: 68px; width: 260px; background: #233138;
+            position: fixed; right: 20px; bottom: 60px; width: 250px; background: #233138;
             border: 1px solid #2a3942; border-radius: 12px; padding: 8px; color: #e9edef;
             font: 400 13px system-ui, sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
             z-index: 999999; display: none; flex-direction: column; gap: 4px;
+            animation: wadesk-fadein 0.15s ease-out;
+        }
+        @keyframes wadesk-fadein {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         .wadesk-panel.show { display: flex; }
         .wadesk-hdr {
@@ -46,8 +59,8 @@
 
         var fab = document.createElement('div');
         fab.className = 'wadesk-fab';
-        fab.innerHTML = '⚡';
-        fab.title = 'WaDesk Account Switcher';
+        fab.innerHTML = '<span class="wadesk-fab-icon">⚡</span><span>Akun</span>';
+        fab.title = 'WaDesk Account Switcher (Ctrl+Shift+A)';
 
         var panel = document.createElement('div');
         panel.className = 'wadesk-panel';
@@ -55,16 +68,18 @@
             <div class="wadesk-hdr">WaDesk Accounts</div>
             <div id="wadesk-account-list"></div>
             <div class="wadesk-sep"></div>
-            <div class="wadesk-act" id="wadesk-add-btn">+ Add Account</div>
+            <div class="wadesk-act" id="wadesk-add-btn">+ Tambah Akun</div>
         `;
 
-        fab.addEventListener('click', function(e) {
-            e.stopPropagation();
+        function togglePanel(e) {
+            if (e) e.stopPropagation();
             panel.classList.toggle('show');
             if (panel.classList.contains('show')) {
                 refresh();
             }
-        });
+        }
+
+        fab.addEventListener('click', togglePanel);
 
         document.addEventListener('click', function() {
             panel.classList.remove('show');
@@ -87,7 +102,7 @@
         var addBtn = panel.querySelector('#wadesk-add-btn');
         if (addBtn) {
             addBtn.addEventListener('click', function() {
-                var name = prompt('Enter new account name:');
+                var name = prompt('Masukkan nama akun baru:');
                 if (name && name.trim()) {
                     if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
                         window.chrome.webview.postMessage({ type: 'add_account', name: name.trim() });
@@ -114,6 +129,17 @@
                 }
                 list.appendChild(row);
             });
+        };
+
+        window.wadeskOverlay = {
+            open: function() {
+                panel.classList.add('show');
+                refresh();
+            },
+            close: function() {
+                panel.classList.remove('show');
+            },
+            toggle: togglePanel
         };
     }
 

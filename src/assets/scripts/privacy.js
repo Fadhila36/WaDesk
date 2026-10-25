@@ -1,28 +1,39 @@
 // Privacy blur mode, Media blur, and Auto-Lock for WhatsApp Web
 (function () {
     var CSS = `
-        /* Text & Chat Content Privacy Blur */
-        html[data-wadesk-privacy="on"] [data-testid="cell-frame-title"],
+        /* Message Text & Chat Content Privacy Blur */
+        /* Hanya mengaburkan teks pesan obrolan dan preview pesan terakhir, bukan nama atau avatar kontak */
         html[data-wadesk-privacy="on"] [data-testid="last-msg-status"],
-        html[data-wadesk-privacy="on"] span[title]:not([data-testid]),
         html[data-wadesk-privacy="on"] .message-in .selectable-text,
-        html[data-wadesk-privacy="on"] .message-out .selectable-text {
+        html[data-wadesk-privacy="on"] .message-out .selectable-text,
+        html[data-wadesk-privacy="on"] [data-testid="msg-container"] .selectable-text,
+        html[data-wadesk-privacy="on"] div[data-testid="conversation-panel-messages"] .copyable-text:not([data-testid="cell-frame-title"]) {
             filter: blur(6px) !important;
             transition: filter 0.2s ease !important;
             user-select: none !important;
         }
 
-        html[data-wadesk-privacy="on"][data-wadesk-reveal="hover"] [data-testid="cell-frame-title"]:hover,
         html[data-wadesk-privacy="on"][data-wadesk-reveal="hover"] [data-testid="last-msg-status"]:hover,
-        html[data-wadesk-privacy="on"][data-wadesk-reveal="hover"] span[title]:not([data-testid]):hover,
         html[data-wadesk-privacy="on"][data-wadesk-reveal="hover"] .message-in:hover .selectable-text,
-        html[data-wadesk-privacy="on"][data-wadesk-reveal="hover"] .message-out:hover .selectable-text {
+        html[data-wadesk-privacy="on"][data-wadesk-reveal="hover"] .message-out:hover .selectable-text,
+        html[data-wadesk-privacy="on"][data-wadesk-reveal="hover"] [data-testid="msg-container"]:hover .selectable-text,
+        html[data-wadesk-privacy="on"][data-wadesk-reveal="hover"] div[data-testid="conversation-panel-messages"] .copyable-text:hover {
             filter: none !important;
             user-select: text !important;
         }
 
+        /* Pastikan nama kontak di daftar chat, header chat, dan avatar TIDAK ter-blur sama sekali */
+        [data-testid="cell-frame-title"],
+        [data-testid="conversation-info-header"],
+        [data-testid="chat-title"],
+        [data-testid="avatar"],
+        img[alt*="avatar"],
+        img[src*="avatar"] {
+            filter: none !important;
+        }
+
         /* Media Blur (Hover-to-Reveal) */
-        html[data-wadesk-media-blur="on"] img:not([alt*="avatar"]):not([src*="avatar"]),
+        html[data-wadesk-media-blur="on"] img:not([alt*="avatar"]):not([src*="avatar"]):not([data-testid="avatar"]),
         html[data-wadesk-media-blur="on"] video,
         html[data-wadesk-media-blur="on"] [data-testid="image-thumb"],
         html[data-wadesk-media-blur="on"] [data-testid="video-thumb"],
@@ -31,7 +42,7 @@
             transition: filter 0.25s ease !important;
         }
 
-        html[data-wadesk-media-blur="on"] img:not([alt*="avatar"]):not([src*="avatar"]):hover,
+        html[data-wadesk-media-blur="on"] img:not([alt*="avatar"]):not([src*="avatar"]):not([data-testid="avatar"]):hover,
         html[data-wadesk-media-blur="on"] video:hover,
         html[data-wadesk-media-blur="on"] [data-testid="image-thumb"]:hover,
         html[data-wadesk-media-blur="on"] [data-testid="video-thumb"]:hover,
@@ -47,18 +58,22 @@
         style.textContent = CSS;
         html.appendChild(style);
 
+        // State tracking
+        var manualPrivacyActive = false;
+        var autoBlurTimer = null;
+        var autoBlurEnabled = false;
+        var autoBlurSeconds = 30;
+
         function apply(on, reveal) {
-            if (on) { html.setAttribute('data-wadesk-privacy', 'on'); }
-            else { html.removeAttribute('data-wadesk-privacy'); }
+            if (on) {
+                html.setAttribute('data-wadesk-privacy', 'on');
+            } else {
+                html.removeAttribute('data-wadesk-privacy');
+            }
             html.setAttribute('data-wadesk-reveal', reveal === 'hover' ? 'hover' : 'hard');
         }
 
         window.wadeskPrivacyApply = apply;
-
-        // Auto-blur on inactivity / blur
-        var autoBlurTimer = null;
-        var autoBlurActive = false;
-        var autoBlurSeconds = 30;
 
         function resetAutoBlurTimer() {
             if (autoBlurTimer) {
@@ -67,23 +82,38 @@
             }
         }
 
-        window.addEventListener('blur', function () {
-            if (!autoBlurActive) return;
+        // Dipanggil saat jendela kehilangan fokus (Alt+Tab atau klik aplikasi lain)
+        function handleBlur() {
+            if (manualPrivacyActive) {
+                // Jika user mengaktifkan manual blur, pastikan tetap aktif
+                apply(true, 'hover');
+                return;
+            }
+            if (!autoBlurEnabled) return;
             resetAutoBlurTimer();
             autoBlurTimer = setTimeout(function () {
                 apply(true, 'hover');
-                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-                    window.chrome.webview.postMessage({ type: 'privacy_toggle', enabled: true });
-                }
             }, autoBlurSeconds * 1000);
-        });
+        }
 
-        window.addEventListener('focus', function () {
+        // Dipanggil saat jendela kembali fokus
+        function handleFocus() {
             resetAutoBlurTimer();
-        });
+            if (manualPrivacyActive) {
+                // Manual privacy blur tetap menyala!
+                apply(true, 'hover');
+            }
+        }
+
+        window.addEventListener('blur', handleBlur);
+        window.addEventListener('focus', handleFocus);
+
+        // Bridge dipanggil langsung dari Win32 WM_ACTIVATE
+        window.wadeskOnWindowBlur = handleBlur;
+        window.wadeskOnWindowFocus = handleFocus;
 
         window.wadeskSetAutoBlur = function (enabled, secs) {
-            autoBlurActive = !!enabled;
+            autoBlurEnabled = !!enabled;
             if (secs && secs > 0) autoBlurSeconds = secs;
             resetAutoBlurTimer();
         };
@@ -98,15 +128,16 @@
 
         window.wadeskPrivacy = {
             toggle: function () {
-                var next = html.getAttribute('data-wadesk-privacy') !== 'on';
-                apply(next, 'hover');
+                manualPrivacyActive = !manualPrivacyActive;
+                apply(manualPrivacyActive, 'hover');
                 if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-                    window.chrome.webview.postMessage({ type: 'privacy_toggle', enabled: next });
+                    window.chrome.webview.postMessage({ type: 'privacy_toggle', enabled: manualPrivacyActive });
                 }
-                return next;
+                return manualPrivacyActive;
             },
             set: function (on) {
-                apply(on, 'hover');
+                manualPrivacyActive = !!on;
+                apply(manualPrivacyActive, 'hover');
             }
         };
 
