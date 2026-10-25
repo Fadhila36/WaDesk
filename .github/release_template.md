@@ -17,6 +17,14 @@ WaDesk is a desktop client for WhatsApp Web built with Rust and native platform 
 - Application Archive: Download `WaDesk-{{CLEAN_VERSION}}-macOS-Universal.zip`, extract, and move `WaDesk.app` to `/Applications`.
 - Supports macOS 11 (Big Sur) and newer on both Apple Silicon (M1-M4) and Intel systems.
 
+> 💡 **First Time Opening on macOS (Apple Gatekeeper):**
+> If macOS shows *"Apple could not verify WaDesk is free of malware"*:
+> - **Option 1 (System Settings)**: Open **System Settings > Privacy & Security**, scroll down to the Security section, and click **Open Anyway**.
+> - **Option 2 (Terminal - 1 Second)**: Open Terminal and run:
+>   ```bash
+>   xattr -cr /Applications/WaDesk.app
+>   ```
+
 ### Linux
 - Debian, Ubuntu, and Linux Mint:
   ```bash

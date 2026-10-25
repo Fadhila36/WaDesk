@@ -154,6 +154,28 @@ cargo test
 cargo build --release
 ```
 The output binary will be created at `target\release\wadesk.exe`.
+ 
+---
+
+## 🍎 macOS Installation & Gatekeeper Note
+
+Untuk aplikasi open-source independen yang diunduh langsung dari GitHub (tanpa sertifikat berbayar Apple Developer Program), macOS Gatekeeper akan menampilkan peringatan keamanan saat pertama kali dibuka:
+> *"Apple could not verify WaDesk is free of malware..."*
+
+**Cara Mengizinkan WaDesk Berjalan (Hanya 1x saat pertama install):**
+
+- **Cara 1 (Melalui System Settings):**
+  1. Klik **Done** pada kotak dialog peringatan.
+  2. Buka **System Settings** ➔ **Privacy & Security**.
+  3. Gulir ke bawah ke bagian **Security**, Anda akan melihat teks *"WaDesk was blocked from use..."*.
+  4. Klik tombol **Open Anyway**, lalu masukkan password/Touch ID Mac Anda.
+
+- **Cara 2 (Super Cepat via Terminal):**
+  Buka aplikasi **Terminal** di Mac Anda, lalu salin dan jalankan perintah berikut:
+  ```bash
+  xattr -cr /Applications/WaDesk.app
+  ```
+  *(Atau jika file masih di folder Downloads: `xattr -cr ~/Downloads/WaDesk.app`)*
 
 ---
 

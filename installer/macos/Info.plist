@@ -20,6 +20,12 @@
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.social-networking</string>
+    <key>NSCameraUsageDescription</key>
+    <string>WaDesk requires camera access for WhatsApp video calls.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>WaDesk requires microphone access for WhatsApp voice and video calls.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

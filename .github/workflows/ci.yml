@@ -186,13 +186,18 @@ jobs:
           sips -z 512 512   assets/whatsapp.png --out icon.iconset/icon_512x512.png
           iconutil -c icns icon.iconset -o WaDesk.app/Contents/Resources/AppIcon.icns
           
-          # 3. Build Universal DMG (Apple Disk Image Installer for M1-M4 & Intel)
+          # 3. Ad-hoc Codesign with Entitlements to satisfy macOS Gatekeeper bundle verification
+          codesign --force --deep --sign - --entitlements installer/macos/WaDesk.entitlements WaDesk.app
+          codesign --verify --deep --strict --verbose=2 WaDesk.app
+          
+          # 4. Build Universal DMG (Apple Disk Image Installer for M1-M4 & Intel)
           mkdir -p dmg-root
           cp -r WaDesk.app dmg-root/
           ln -s /Applications dmg-root/Applications
           hdiutil create -volname "WaDesk" -srcfolder dmg-root -ov -format UDZO "mac-artifacts/WaDesk-${{ env.RESOLVED_VER }}-macOS-Universal.dmg"
+          codesign --force --sign - "mac-artifacts/WaDesk-${{ env.RESOLVED_VER }}-macOS-Universal.dmg"
           
-          # 4. Zip Universal WaDesk.app
+          # 5. Zip Universal WaDesk.app
           zip -r "mac-artifacts/WaDesk-${{ env.RESOLVED_VER }}-macOS-Universal.zip" WaDesk.app
 
       - name: Upload macOS Artifacts
