@@ -54,6 +54,13 @@ fn test_bridge_message_deserialization() {
         _ => panic!("expected BridgeMessage::InstallUpdate"),
     }
 
+    let json_schedule = r#"{"type":"schedule_install_on_exit","version":"1.0.17"}"#;
+    let msg_schedule: BridgeMessage = serde_json::from_str(json_schedule).expect("parse schedule install on exit should succeed");
+    match msg_schedule {
+        BridgeMessage::ScheduleInstallOnExit { version } => assert_eq!(version, "1.0.17"),
+        _ => panic!("expected BridgeMessage::ScheduleInstallOnExit"),
+    }
+
     let json_rename = r#"{"type":"rename_account","id":"acct_1","name":"Work Profile"}"#;
     let msg_rename: BridgeMessage = serde_json::from_str(json_rename).expect("parse rename should succeed");
     match msg_rename {

@@ -116,6 +116,17 @@ impl TokenManager {
         }
 
         std::fs::write(path, &new_token)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o600);
+                let _ = std::fs::set_permissions(path, perms);
+            }
+        }
+
         Ok(new_token)
     }
 

@@ -59,6 +59,10 @@ pub enum BridgeMessage {
     InstallUpdate {
         version: String,
     },
+    #[serde(rename = "schedule_install_on_exit")]
+    ScheduleInstallOnExit {
+        version: String,
+    },
 }
 
 /// Koordinator RPC asinkron antara async Tokio tasks dan WebView2 DOM Agent

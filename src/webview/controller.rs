@@ -383,7 +383,7 @@ impl WebViewHost {
         }
 
         // 5. Muat WhatsApp Web
-        host.navigate("https://web.whatsapp.com")?;
+        host.navigate(crate::config::APP_URL)?;
 
         Ok(host)
     }
