@@ -213,6 +213,69 @@ impl WebViewHost {
                                 let version = val.get("version").and_then(|v| v.as_str()).unwrap_or("latest");
                                 crate::gui::updater::execute_preloaded_installer(hwnd, version);
                             }
+                            Some("get_accounts") => {
+                                let paths = crate::config::AppPaths::for_profile(crate::config::DEFAULT_PROFILE_ID);
+                                let manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);
+                                if let Ok(json) = serde_json::to_string(&manifest.accounts) {
+                                    let script = format!("window.wadeskRenderAccounts && window.wadeskRenderAccounts({}, 'default');", json);
+                                    crate::gui::window::eval_script(hwnd, &script);
+                                }
+                            }
+                            Some("add_account") => {
+                                if let Some(name) = val.get("name").and_then(|n| n.as_str()) {
+                                    let paths = crate::config::AppPaths::for_profile(crate::config::DEFAULT_PROFILE_ID);
+                                    let mut manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);
+                                    let new_id = format!("acct_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+                                    let new_acct = crate::config::Account {
+                                        id: new_id.clone(),
+                                        name: name.to_string(),
+                                        service: "WA".to_string(),
+                                        autostart: true,
+                                    };
+                                    manifest.add_or_update(new_acct);
+                                    let _ = manifest.save(&paths.accounts_file);
+                                    let _ = crate::config::AppPaths::for_profile(&new_id).ensure_dirs();
+                                    if let Ok(json) = serde_json::to_string(&manifest.accounts) {
+                                        let script = format!("window.wadeskRenderAccounts && window.wadeskRenderAccounts({}, 'default');", json);
+                                        crate::gui::window::eval_script(hwnd, &script);
+                                    }
+                                }
+                            }
+                            Some("rename_account") => {
+                                if let (Some(id), Some(new_name)) = (val.get("id").and_then(|i| i.as_str()), val.get("name").and_then(|n| n.as_str())) {
+                                    let paths = crate::config::AppPaths::for_profile(crate::config::DEFAULT_PROFILE_ID);
+                                    let mut manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);
+                                    if let Some(acct) = manifest.accounts.iter_mut().find(|a| a.id == id) {
+                                        acct.name = new_name.to_string();
+                                        let _ = manifest.save(&paths.accounts_file);
+                                    }
+                                    if let Ok(json) = serde_json::to_string(&manifest.accounts) {
+                                        let script = format!("window.wadeskRenderAccounts && window.wadeskRenderAccounts({}, 'default');", json);
+                                        crate::gui::window::eval_script(hwnd, &script);
+                                    }
+                                }
+                            }
+                            Some("remove_account") => {
+                                if let Some(id) = val.get("id").and_then(|i| i.as_str()) {
+                                    if id != crate::config::DEFAULT_PROFILE_ID {
+                                        let paths = crate::config::AppPaths::for_profile(crate::config::DEFAULT_PROFILE_ID);
+                                        let mut manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);
+                                        manifest.remove(id);
+                                        let _ = manifest.save(&paths.accounts_file);
+                                        if let Ok(json) = serde_json::to_string(&manifest.accounts) {
+                                            let script = format!("window.wadeskRenderAccounts && window.wadeskRenderAccounts({}, 'default');", json);
+                                            crate::gui::window::eval_script(hwnd, &script);
+                                        }
+                                    }
+                                }
+                            }
+                            Some("switch_account") => {
+                                if let Some(id) = val.get("id").and_then(|i| i.as_str()) {
+                                    if let Ok(exe) = std::env::current_exe() {
+                                        let _ = std::process::Command::new(exe).arg("--profile").arg(id).spawn();
+                                    }
+                                }
+                            }
                             _ => {
                                 if let Some(rpc_id) = val.get("rpc_id").and_then(|r| r.as_str()).map(|s| s.to_string()) {
                                     coord_clone.resolve(&rpc_id, val);

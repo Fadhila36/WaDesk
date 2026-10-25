@@ -35,6 +35,15 @@ pub enum BridgeMessage {
     SwitchAccount {
         id: String,
     },
+    #[serde(rename = "rename_account")]
+    RenameAccount {
+        id: String,
+        name: String,
+    },
+    #[serde(rename = "remove_account")]
+    RemoveAccount {
+        id: String,
+    },
     #[serde(rename = "download_update")]
     DownloadUpdate {
         url: String,

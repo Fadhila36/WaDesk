@@ -420,6 +420,30 @@ pub fn spawn_background_download(hwnd: HWND, url: String, version: String) {
     });
 }
 
+/// Membersihkan file installer lama di direktori sementara Windows (%TEMP%)
+pub fn cleanup_temp_installers() {
+    let temp_dir = std::env::temp_dir();
+    if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
+                if file_name.starts_with("WaDesk-Setup-v") && file_name.ends_with(".exe") {
+                    let is_current_cached = READY_UPDATE
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .map(|(_, p)| p == &path)
+                        .unwrap_or(false);
+
+                    if !is_current_cached {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Background task yang otomatis memeriksa pembaruan saat startup atau manual trigger,
 /// melakukan silent background pre-download saat startup agar pembaruan instan,
 /// dan mematuhi aturan snooze / skip version.
@@ -436,8 +460,9 @@ pub fn spawn_background_update_check(hwnd: HWND, silent_if_latest: bool) {
         };
 
         rt.block_on(async move {
-            // Tunggu 4 detik jika startup auto-check agar WebView selesai memuat
+            // Bersihkan installer usang di %TEMP% dan tunggu WebView selesai memuat
             if silent_if_latest {
+                cleanup_temp_installers();
                 tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
             }
 
@@ -577,5 +602,16 @@ Run the installer or portable exe.
         assert!(!verify_sha256(&test_file, "0000000000000000000000000000000000000000000000000000000000000000"));
 
         let _ = std::fs::remove_file(test_file);
+    }
+
+    #[test]
+    fn test_cleanup_temp_installers() {
+        let temp_dir = std::env::temp_dir();
+        let dummy_old_installer = temp_dir.join("WaDesk-Setup-v0.9.0-test.exe");
+        std::fs::write(&dummy_old_installer, b"old installer payload").expect("create dummy old installer");
+        assert!(dummy_old_installer.exists());
+
+        cleanup_temp_installers();
+        assert!(!dummy_old_installer.exists(), "Old temp installer should be cleaned up");
     }
 }

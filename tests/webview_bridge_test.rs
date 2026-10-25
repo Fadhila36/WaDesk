@@ -53,6 +53,23 @@ fn test_bridge_message_deserialization() {
         BridgeMessage::InstallUpdate { version } => assert_eq!(version, "1.0.8"),
         _ => panic!("expected BridgeMessage::InstallUpdate"),
     }
+
+    let json_rename = r#"{"type":"rename_account","id":"acct_1","name":"Work Profile"}"#;
+    let msg_rename: BridgeMessage = serde_json::from_str(json_rename).expect("parse rename should succeed");
+    match msg_rename {
+        BridgeMessage::RenameAccount { id, name } => {
+            assert_eq!(id, "acct_1");
+            assert_eq!(name, "Work Profile");
+        }
+        _ => panic!("expected BridgeMessage::RenameAccount"),
+    }
+
+    let json_remove = r#"{"type":"remove_account","id":"acct_1"}"#;
+    let msg_remove: BridgeMessage = serde_json::from_str(json_remove).expect("parse remove should succeed");
+    match msg_remove {
+        BridgeMessage::RemoveAccount { id } => assert_eq!(id, "acct_1"),
+        _ => panic!("expected BridgeMessage::RemoveAccount"),
+    }
 }
 
 #[tokio::test]
