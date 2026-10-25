@@ -25,6 +25,16 @@ fn test_bridge_message_deserialization() {
         }
         _ => panic!("expected BridgeMessage::AgentReply"),
     }
+
+    let json_update = r#"{"type":"download_update","url":"https://github.com/test.exe","version":"1.0.8"}"#;
+    let msg3: BridgeMessage = serde_json::from_str(json_update).expect("parse download update should succeed");
+    match msg3 {
+        BridgeMessage::DownloadUpdate { url, version } => {
+            assert_eq!(url, "https://github.com/test.exe");
+            assert_eq!(version, "1.0.8");
+        }
+        _ => panic!("expected BridgeMessage::DownloadUpdate"),
+    }
 }
 
 #[tokio::test]

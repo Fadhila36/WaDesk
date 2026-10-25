@@ -36,11 +36,13 @@ pub fn get_init_scripts(_prefs: &Prefs) -> Vec<String> {
     let overlay_js = include_str!("scripts/overlay.js").to_string();
     let privacy_js = include_str!("scripts/privacy.js").to_string();
     let agent_js = include_str!("scripts/agent.js").to_string();
+    let updater_js = include_str!("scripts/updater.js").to_string();
 
     vec![
         full_notification_script,
         overlay_js,
         privacy_js,
         agent_js,
+        updater_js,
     ]
 }

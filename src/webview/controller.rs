@@ -188,12 +188,24 @@ impl WebViewHost {
                     let mem = webview2_com::CoTaskMemPWSTR::from(raw);
                     let json_str = mem.to_string();
                     if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                        if val.get("type").and_then(|t| t.as_str()) == Some("notification") {
-                            let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("WhatsApp");
-                            let body = val.get("body").and_then(|b| b.as_str()).unwrap_or("");
-                            crate::gui::tray::TrayIcon::show_balloon_static(hwnd, title, body);
-                        } else if let Some(rpc_id) = val.get("rpc_id").and_then(|r| r.as_str()).map(|s| s.to_string()) {
-                            coord_clone.resolve(&rpc_id, val);
+                        let msg_type = val.get("type").and_then(|t| t.as_str());
+                        match msg_type {
+                            Some("notification") => {
+                                let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("WhatsApp");
+                                let body = val.get("body").and_then(|b| b.as_str()).unwrap_or("");
+                                crate::gui::tray::TrayIcon::show_balloon_static(hwnd, title, body);
+                            }
+                            Some("download_update") => {
+                                if let Some(url) = val.get("url").and_then(|u| u.as_str()) {
+                                    let version = val.get("version").and_then(|v| v.as_str()).unwrap_or("latest").to_string();
+                                    crate::gui::updater::spawn_background_download(hwnd, url.to_string(), version);
+                                }
+                            }
+                            _ => {
+                                if let Some(rpc_id) = val.get("rpc_id").and_then(|r| r.as_str()).map(|s| s.to_string()) {
+                                    coord_clone.resolve(&rpc_id, val);
+                                }
+                            }
                         }
                     }
                 }

@@ -2,9 +2,7 @@ use serde::Deserialize;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, MB_ICONINFORMATION, MB_OK, MB_YESNO, IDYES, SW_SHOWNORMAL,
-};
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 pub const GITHUB_REPO: &str = "Fadhila36/WaDesk";
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -149,49 +147,161 @@ pub fn extract_highlights(raw_notes: &str) -> Vec<String> {
     highlights
 }
 
-/// Menampilkan dialog konfirmasi update ke user dengan tampilan yang rapi dan profesional
-pub fn prompt_user_for_update(hwnd: HWND, info: &UpdateInfo) {
+/// Menampilkan dialog pembaruan profesional di dalam WebView (in-app modal)
+pub fn show_update_modal(hwnd: HWND, info: &UpdateInfo) {
     let highlights = extract_highlights(&info.release_notes);
-    let summary = if highlights.is_empty() {
-        "  • Peningkatan stabilitas dan optimasi performa sistem.".to_string()
-    } else {
-        highlights.join("\n")
-    };
+    let payload = serde_json::json!({
+        "currentVersion": CURRENT_VERSION,
+        "latestVersion": info.version,
+        "highlights": highlights,
+        "downloadUrl": info.download_url,
+        "releaseUrl": info.release_url,
+    });
 
-    let msg = format!(
-        "Versi baru WaDesk (v{}) telah dirilis.\n\n\
-        Versi saat ini : v{}\n\
-        Versi terbaru : v{}\n\n\
-        Sorotan Perubahan:\n\
-        {}\n\n\
-        Unduh dan pasang pembaruan sekarang?",
-        info.version, CURRENT_VERSION, info.version, summary
+    let script = format!(
+        "window.wadeskShowUpdateModal && window.wadeskShowUpdateModal({});",
+        payload
     );
+    crate::gui::window::eval_script(hwnd, &script);
+}
 
-    let wide_msg: Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
-    let title: Vec<u16> = "Pembaruan Tersedia - WaDesk\0".encode_utf16().collect();
+/// Fallback kompatibilitas: menampilkan modal update di webview
+pub fn prompt_user_for_update(hwnd: HWND, info: &UpdateInfo) {
+    show_update_modal(hwnd, info);
+}
 
-    unsafe {
-        let result = MessageBoxW(
-            hwnd,
-            PCWSTR(wide_msg.as_ptr()),
-            PCWSTR(title.as_ptr()),
-            MB_YESNO | MB_ICONINFORMATION,
-        );
+/// Mengunduh installer pembaruan di latar belakang tanpa membuka browser eksternal,
+/// melaporkan progres secara langsung ke UI, dan menjalankan installer setelah selesai.
+pub fn spawn_background_download(hwnd: HWND, url: String, version: String) {
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(r) => r,
+            Err(_) => return,
+        };
 
-        if result == IDYES {
-            let target_url = info.download_url.as_deref().unwrap_or(&info.release_url);
-            let wide_url: Vec<u16> = target_url.encode_utf16().chain(std::iter::once(0)).collect();
-            let _ = ShellExecuteW(
+        rt.block_on(async move {
+            let client = match reqwest::Client::builder()
+                .user_agent(format!("WaDesk/{}", CURRENT_VERSION))
+                .build()
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    crate::gui::window::eval_script(
+                        hwnd,
+                        &format!("window.wadeskUpdateError && window.wadeskUpdateError('Koneksi gagal: {}');", e),
+                    );
+                    return;
+                }
+            };
+
+            crate::gui::window::eval_script(
                 hwnd,
-                w!("open"),
-                PCWSTR(wide_url.as_ptr()),
-                PCWSTR::null(),
-                PCWSTR::null(),
-                SW_SHOWNORMAL,
+                "window.wadeskUpdateProgress && window.wadeskUpdateProgress(5, 'Menghubungkan ke server rilis...');",
             );
-        }
-    }
+
+            let mut resp = match client.get(&url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    crate::gui::window::eval_script(
+                        hwnd,
+                        &format!("window.wadeskUpdateError && window.wadeskUpdateError('Gagal mengunduh: {}');", e),
+                    );
+                    return;
+                }
+            };
+
+            if !resp.status().is_success() {
+                crate::gui::window::eval_script(
+                    hwnd,
+                    &format!("window.wadeskUpdateError && window.wadeskUpdateError('Status server HTTP {}');", resp.status()),
+                );
+                return;
+            }
+
+            let total_size = resp.content_length().unwrap_or(0);
+            let temp_file = std::env::temp_dir().join(format!("WaDesk-Setup-v{}.exe", version));
+
+            let mut file = match std::fs::File::create(&temp_file) {
+                Ok(f) => f,
+                Err(e) => {
+                    crate::gui::window::eval_script(
+                        hwnd,
+                        &format!("window.wadeskUpdateError && window.wadeskUpdateError('Gagal membuat file: {}');", e),
+                    );
+                    return;
+                }
+            };
+
+            use std::io::Write;
+            let mut downloaded: u64 = 0;
+            let mut last_percent: u32 = 0;
+
+            while let Ok(Some(chunk)) = resp.chunk().await {
+                if let Err(e) = file.write_all(&chunk) {
+                    crate::gui::window::eval_script(
+                        hwnd,
+                        &format!("window.wadeskUpdateError && window.wadeskUpdateError('Gagal menyimpan unduhan: {}');", e),
+                    );
+                    return;
+                }
+                downloaded += chunk.len() as u64;
+
+                let percent = if total_size > 0 {
+                    (((downloaded as f64) / (total_size as f64)) * 100.0) as u32
+                } else {
+                    50
+                };
+
+                if percent >= last_percent + 2 || percent >= 100 {
+                    last_percent = percent;
+                    let downloaded_mb = (downloaded as f64) / (1024.0 * 1024.0);
+                    let total_mb = (total_size as f64) / (1024.0 * 1024.0);
+                    let status = if total_size > 0 {
+                        format!("Mengunduh... ({:.1} MB / {:.1} MB)", downloaded_mb, total_mb)
+                    } else {
+                        format!("Mengunduh... ({:.1} MB)", downloaded_mb)
+                    };
+                    crate::gui::window::eval_script(
+                        hwnd,
+                        &format!("window.wadeskUpdateProgress && window.wadeskUpdateProgress({}, '{}');", percent.min(99), status),
+                    );
+                }
+            }
+
+            let _ = file.flush();
+
+            crate::gui::window::eval_script(
+                hwnd,
+                "window.wadeskUpdateProgress && window.wadeskUpdateProgress(100, 'Unduhan selesai! Memulai penginstalan...');",
+            );
+
+            // Jeda singkat agar user melihat progress 100%
+            tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+
+            let wide_path: Vec<u16> = temp_file.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+            unsafe {
+                let _ = ShellExecuteW(
+                    HWND(std::ptr::null_mut()),
+                    w!("open"),
+                    PCWSTR(wide_path.as_ptr()),
+                    PCWSTR::null(),
+                    PCWSTR::null(),
+                    SW_SHOWNORMAL,
+                );
+            }
+
+            // Berikan jeda 1.5 detik lalu keluar aplikasi agar installer dapat mengupdate tanpa konflik file
+            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+            unsafe {
+                windows::Win32::UI::WindowsAndMessaging::PostQuitMessage(0);
+            }
+        });
+    });
 }
 
 /// Background task yang otomatis memeriksa pembaruan saat startup atau manual trigger
@@ -208,43 +318,31 @@ pub fn spawn_background_update_check(hwnd: HWND, silent_if_latest: bool) {
         };
 
         rt.block_on(async move {
-            // Tunggu 3 detik jika background auto-check saat startup
+            // Tunggu 4 detik jika background auto-check saat startup agar WebView selesai memuat
             if silent_if_latest {
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
             }
 
             match fetch_latest_release().await {
                 Ok(Some(info)) => {
-                    prompt_user_for_update(hwnd, &info);
+                    show_update_modal(hwnd, &info);
                 }
                 Ok(None) => {
                     if !silent_if_latest {
-                        let msg = format!("Anda sudah menggunakan versi terbaru (v{}).", CURRENT_VERSION);
-                        let wide_msg: Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
-                        let title: Vec<u16> = "WaDesk Sudah Terbaru\0".encode_utf16().collect();
-                        unsafe {
-                            let _ = MessageBoxW(
-                                hwnd,
-                                PCWSTR(wide_msg.as_ptr()),
-                                PCWSTR(title.as_ptr()),
-                                MB_OK | MB_ICONINFORMATION,
-                            );
-                        }
+                        let script = format!(
+                            "window.wadeskShowToast && window.wadeskShowToast('WaDesk v{} sudah versi terbaru.');",
+                            CURRENT_VERSION
+                        );
+                        crate::gui::window::eval_script(hwnd, &script);
                     }
                 }
                 Err(e) => {
                     if !silent_if_latest {
-                        let msg = format!("Gagal memeriksa pembaruan:\n{}", e);
-                        let wide_msg: Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
-                        let title: Vec<u16> = "Cek Pembaruan\0".encode_utf16().collect();
-                        unsafe {
-                            let _ = MessageBoxW(
-                                hwnd,
-                                PCWSTR(wide_msg.as_ptr()),
-                                PCWSTR(title.as_ptr()),
-                                MB_OK | MB_ICONINFORMATION,
-                            );
-                        }
+                        let script = format!(
+                            "window.wadeskShowToast && window.wadeskShowToast('Gagal memeriksa pembaruan: {}');",
+                            e
+                        );
+                        crate::gui::window::eval_script(hwnd, &script);
                     }
                 }
             }

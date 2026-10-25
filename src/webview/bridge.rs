@@ -35,6 +35,11 @@ pub enum BridgeMessage {
     SwitchAccount {
         id: String,
     },
+    #[serde(rename = "download_update")]
+    DownloadUpdate {
+        url: String,
+        version: String,
+    },
 }
 
 /// Koordinator RPC asinkron antara async Tokio tasks dan WebView2 DOM Agent

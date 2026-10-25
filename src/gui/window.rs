@@ -198,15 +198,21 @@ impl Drop for AppWindow {
     }
 }
 
-unsafe fn eval_script_on_hwnd(hwnd: HWND, script: &str) {
-    let ctrl_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-    if ctrl_ptr != 0 {
-        let ctrl = &*(ctrl_ptr as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller);
-        if let Ok(webview) = ctrl.CoreWebView2() {
-            let wide: Vec<u16> = script.encode_utf16().chain(std::iter::once(0)).collect();
-            let _ = webview.ExecuteScript(PCWSTR(wide.as_ptr()), None);
+pub fn eval_script(hwnd: HWND, script: &str) {
+    unsafe {
+        let ctrl_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if ctrl_ptr != 0 {
+            let ctrl = &*(ctrl_ptr as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller);
+            if let Ok(webview) = ctrl.CoreWebView2() {
+                let wide: Vec<u16> = script.encode_utf16().chain(std::iter::once(0)).collect();
+                let _ = webview.ExecuteScript(PCWSTR(wide.as_ptr()), None);
+            }
         }
     }
+}
+
+unsafe fn eval_script_on_hwnd(hwnd: HWND, script: &str) {
+    eval_script(hwnd, script);
 }
 
 unsafe fn show_tray_popup_menu(hwnd: HWND) {
