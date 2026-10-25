@@ -201,6 +201,18 @@ impl WebViewHost {
                                     crate::gui::updater::spawn_background_download(hwnd, url.to_string(), version);
                                 }
                             }
+                            Some("snooze_update") => {
+                                crate::gui::updater::snooze_update();
+                            }
+                            Some("skip_update") => {
+                                if let Some(version) = val.get("version").and_then(|v| v.as_str()) {
+                                    crate::gui::updater::skip_update(version);
+                                }
+                            }
+                            Some("install_update") => {
+                                let version = val.get("version").and_then(|v| v.as_str()).unwrap_or("latest");
+                                crate::gui::updater::execute_preloaded_installer(hwnd, version);
+                            }
                             _ => {
                                 if let Some(rpc_id) = val.get("rpc_id").and_then(|r| r.as_str()).map(|s| s.to_string()) {
                                     coord_clone.resolve(&rpc_id, val);

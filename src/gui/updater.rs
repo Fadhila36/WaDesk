@@ -1,4 +1,7 @@
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::ShellExecuteW;
@@ -6,6 +9,9 @@ use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 pub const GITHUB_REPO: &str = "Fadhila36/WaDesk";
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Cache rilis yang sudah terunduh di latar belakang dan siap dipasang
+static READY_UPDATE: Mutex<Option<(UpdateInfo, PathBuf)>> = Mutex::new(None);
 
 #[derive(Debug, Deserialize)]
 pub struct GitHubAsset {
@@ -28,6 +34,26 @@ pub struct UpdateInfo {
     pub release_notes: String,
     pub release_url: String,
     pub download_url: Option<String>,
+    pub expected_checksum: Option<String>,
+}
+
+/// Mengembalikan versi rilis yang sudah siap diinstal (jika ada) untuk label tray menu
+pub fn get_ready_update_version() -> Option<String> {
+    READY_UPDATE.lock().unwrap().as_ref().map(|(info, _)| info.version.clone())
+}
+
+/// Menunda pemberitahuan pembaruan selama 24 jam
+pub fn snooze_update() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    crate::gui::window::update_preferences(|p| p.snooze_24h(now));
+}
+
+/// Melewati notifikasi pembaruan untuk versi tertentu
+pub fn skip_update(version: &str) {
+    crate::gui::window::update_preferences(|p| p.skip_version(version));
 }
 
 /// Membandingkan semver: mengembalikan true jika `latest` > `current`.
@@ -52,6 +78,44 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
     lat_parts.len() > cur_parts.len()
 }
 
+/// Ekstrak hash SHA-256 64 karakter hex dari release body markdown jika tersedia
+pub fn extract_expected_checksum(body: &str) -> Option<String> {
+    for line in body.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("sha256") || lower.contains("checksum") {
+            for word in line.split(|c: char| !c.is_alphanumeric()) {
+                if word.len() == 64 && word.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Some(word.to_lowercase());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Menghitung SHA-256 dari file di disk
+pub fn compute_file_sha256(path: &Path) -> anyhow::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let n = std::io::Read::read(&mut file, &mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Memverifikasi integritas file terhadap expected SHA-256 hash
+pub fn verify_sha256(path: &Path, expected: &str) -> bool {
+    match compute_file_sha256(path) {
+        Ok(hash) => hash.eq_ignore_ascii_case(expected.trim()),
+        Err(_) => false,
+    }
+}
+
 /// Mengecek rilis terbaru secara asinkron dari GitHub Releases API
 pub async fn fetch_latest_release() -> anyhow::Result<Option<UpdateInfo>> {
     let url = format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO);
@@ -69,21 +133,25 @@ pub async fn fetch_latest_release() -> anyhow::Result<Option<UpdateInfo>> {
     let latest_ver = rel.tag_name.trim_start_matches('v').to_string();
 
     if is_newer_version(CURRENT_VERSION, &latest_ver) {
-        // Cari asset setup installer jika ada
-        let installer_asset = rel.assets.into_iter().find(|a| {
+        // Cari asset setup installer (.exe)
+        let installer_asset = rel.assets.iter().find(|a| {
             let n = a.name.to_lowercase();
             n.ends_with(".exe") && (n.contains("setup") || n.contains("wadesk"))
         });
 
         let download_url = installer_asset
-            .map(|a| a.browser_download_url)
+            .map(|a| a.browser_download_url.clone())
             .unwrap_or_else(|| rel.html_url.clone());
+
+        let body_text = rel.body.unwrap_or_default();
+        let expected_checksum = extract_expected_checksum(&body_text);
 
         Ok(Some(UpdateInfo {
             version: latest_ver,
-            release_notes: rel.body.unwrap_or_default(),
+            release_notes: body_text,
             release_url: rel.html_url,
             download_url: Some(download_url),
+            expected_checksum,
         }))
     } else {
         Ok(None)
@@ -106,7 +174,6 @@ pub fn extract_highlights(raw_notes: &str) -> Vec<String> {
         }
 
         if in_changelog && trimmed.starts_with("- ") {
-            // Hilangkan hash commit "(xxxxxxx)" di akhir jika ada
             let item = trimmed.trim_start_matches("- ").trim();
             let clean_item = if let Some(idx) = item.rfind('(') {
                 if item.ends_with(')') {
@@ -129,7 +196,6 @@ pub fn extract_highlights(raw_notes: &str) -> Vec<String> {
     }
 
     if highlights.is_empty() {
-        // Fallback jika format markdown berbeda
         for line in raw_notes.lines() {
             let t = line.trim();
             if t.starts_with("- ") || t.starts_with("* ") {
@@ -148,7 +214,7 @@ pub fn extract_highlights(raw_notes: &str) -> Vec<String> {
 }
 
 /// Menampilkan dialog pembaruan profesional di dalam WebView (in-app modal)
-pub fn show_update_modal(hwnd: HWND, info: &UpdateInfo) {
+pub fn show_update_modal(hwnd: HWND, info: &UpdateInfo, is_ready: bool) {
     let highlights = extract_highlights(&info.release_notes);
     let payload = serde_json::json!({
         "currentVersion": CURRENT_VERSION,
@@ -156,6 +222,7 @@ pub fn show_update_modal(hwnd: HWND, info: &UpdateInfo) {
         "highlights": highlights,
         "downloadUrl": info.download_url,
         "releaseUrl": info.release_url,
+        "isReady": is_ready,
     });
 
     let script = format!(
@@ -165,13 +232,79 @@ pub fn show_update_modal(hwnd: HWND, info: &UpdateInfo) {
     crate::gui::window::eval_script(hwnd, &script);
 }
 
-/// Fallback kompatibilitas: menampilkan modal update di webview
-pub fn prompt_user_for_update(hwnd: HWND, info: &UpdateInfo) {
-    show_update_modal(hwnd, info);
+/// Jalankan installer pembaruan dengan silent flag otomatis (/VERYSILENT /SUPPRESSMSGBOXES /NORESTART)
+pub fn execute_installer(installer_path: &Path) {
+    let wide_path: Vec<u16> = installer_path
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    // Parameter unattended installation untuk Inno Setup / NSIS
+    let wide_args: Vec<u16> = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART\0"
+        .encode_utf16()
+        .collect();
+
+    unsafe {
+        let _ = ShellExecuteW(
+            HWND(std::ptr::null_mut()),
+            w!("open"),
+            PCWSTR(wide_path.as_ptr()),
+            PCWSTR(wide_args.as_ptr()),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+
+    // Beri jeda 800ms lalu tutup WaDesk agar installer dapat mengganti binary tanpa konflik kunci file
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::PostQuitMessage(0);
+        }
+    });
+}
+
+/// Menjalankan file installer yang sudah ter-preload di latar belakang
+pub fn execute_preloaded_installer(_hwnd: HWND, version: &str) {
+    let ready_opt = READY_UPDATE.lock().unwrap().take();
+    let installer_path = if let Some((_, path)) = ready_opt {
+        path
+    } else {
+        std::env::temp_dir().join(format!("WaDesk-Setup-v{}.exe", version))
+    };
+
+    if installer_path.exists() {
+        execute_installer(&installer_path);
+    } else {
+        // Fallback jika file terhapus: buka halaman download
+        let fallback_url = format!("https://github.com/{}/releases/latest", GITHUB_REPO);
+        let wide_url: Vec<u16> = fallback_url.encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            let _ = ShellExecuteW(
+                HWND(std::ptr::null_mut()),
+                w!("open"),
+                PCWSTR(wide_url.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            );
+        }
+    }
+}
+
+/// Trigger manual saat user mengklik "Cek Pembaruan" atau "Pasang Pembaruan" dari Tray
+pub fn trigger_manual_update_or_install(hwnd: HWND) {
+    let ready_opt = READY_UPDATE.lock().unwrap().clone();
+    if let Some((info, _)) = ready_opt {
+        show_update_modal(hwnd, &info, true);
+    } else {
+        spawn_background_update_check(hwnd, false);
+    }
 }
 
 /// Mengunduh installer pembaruan di latar belakang tanpa membuka browser eksternal,
-/// melaporkan progres secara langsung ke UI, dan menjalankan installer setelah selesai.
+/// memverifikasi SHA-256 (jika ada), melaporkan progres, dan menjalankan installer.
 pub fn spawn_background_download(hwnd: HWND, url: String, version: String) {
     let hwnd_raw = hwnd.0 as usize;
     std::thread::spawn(move || {
@@ -280,31 +413,16 @@ pub fn spawn_background_download(hwnd: HWND, url: String, version: String) {
                 "window.wadeskUpdateProgress && window.wadeskUpdateProgress(100, 'Unduhan selesai! Memulai penginstalan...');",
             );
 
-            // Jeda singkat agar user melihat progress 100%
-            tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
 
-            let wide_path: Vec<u16> = temp_file.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
-            unsafe {
-                let _ = ShellExecuteW(
-                    HWND(std::ptr::null_mut()),
-                    w!("open"),
-                    PCWSTR(wide_path.as_ptr()),
-                    PCWSTR::null(),
-                    PCWSTR::null(),
-                    SW_SHOWNORMAL,
-                );
-            }
-
-            // Berikan jeda 1.5 detik lalu keluar aplikasi agar installer dapat mengupdate tanpa konflik file
-            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
-            unsafe {
-                windows::Win32::UI::WindowsAndMessaging::PostQuitMessage(0);
-            }
+            execute_installer(&temp_file);
         });
     });
 }
 
-/// Background task yang otomatis memeriksa pembaruan saat startup atau manual trigger
+/// Background task yang otomatis memeriksa pembaruan saat startup atau manual trigger,
+/// melakukan silent background pre-download saat startup agar pembaruan instan,
+/// dan mematuhi aturan snooze / skip version.
 pub fn spawn_background_update_check(hwnd: HWND, silent_if_latest: bool) {
     let hwnd_raw = hwnd.0 as usize;
     std::thread::spawn(move || {
@@ -318,14 +436,65 @@ pub fn spawn_background_update_check(hwnd: HWND, silent_if_latest: bool) {
         };
 
         rt.block_on(async move {
-            // Tunggu 4 detik jika background auto-check saat startup agar WebView selesai memuat
+            // Tunggu 4 detik jika startup auto-check agar WebView selesai memuat
             if silent_if_latest {
                 tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
             }
 
+            let prefs = crate::gui::window::get_preferences();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
             match fetch_latest_release().await {
                 Ok(Some(info)) => {
-                    show_update_modal(hwnd, &info);
+                    // Cek apakah update disnooze atau dilewati oleh pengguna
+                    if silent_if_latest && prefs.is_update_suppressed(&info.version, now) {
+                        return;
+                    }
+
+                    // Silent Background Pre-download jika ada download URL
+                    if let Some(ref dl_url) = info.download_url {
+                        let temp_file = std::env::temp_dir().join(format!("WaDesk-Setup-v{}.exe", info.version));
+                        let should_download = !temp_file.exists();
+
+                        if should_download {
+                            let client = reqwest::Client::builder()
+                                .user_agent(format!("WaDesk/{}", CURRENT_VERSION))
+                                .build();
+
+                            if let Ok(c) = client {
+                                if let Ok(mut resp) = c.get(dl_url).send().await {
+                                    if resp.status().is_success() {
+                                        if let Ok(mut f) = std::fs::File::create(&temp_file) {
+                                            use std::io::Write;
+                                            while let Ok(Some(chunk)) = resp.chunk().await {
+                                                let _ = f.write_all(&chunk);
+                                            }
+                                            let _ = f.flush();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Verifikasi SHA-256 jika ada hash
+                        let is_valid = if let Some(ref expected) = info.expected_checksum {
+                            verify_sha256(&temp_file, expected)
+                        } else {
+                            temp_file.exists() && std::fs::metadata(&temp_file).map(|m| m.len() > 0).unwrap_or(false)
+                        };
+
+                        if is_valid {
+                            *READY_UPDATE.lock().unwrap() = Some((info.clone(), temp_file));
+                            show_update_modal(hwnd, &info, true);
+                            return;
+                        }
+                    }
+
+                    // Jika pre-download tidak selesai atau download_url berupa release page
+                    show_update_modal(hwnd, &info, false);
                 }
                 Ok(None) => {
                     if !silent_if_latest {
@@ -383,5 +552,30 @@ Run the installer or portable exe.
         assert_eq!(highlights[0], "• Refactor overlay FAB into centered modal");
         assert_eq!(highlights[1], "• Add Ctrl+Shift+A global shortcut");
         assert_eq!(highlights[2], "• Update CI/CD runner cleanup workflow");
+    }
+
+    #[test]
+    fn test_extract_expected_checksum() {
+        let body = "Release v1.0.8\nSHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nEnjoy!";
+        let hash = extract_expected_checksum(body);
+        assert_eq!(hash, Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string()));
+
+        let no_hash_body = "Regular notes without checksum";
+        assert_eq!(extract_expected_checksum(no_hash_body), None);
+    }
+
+    #[test]
+    fn test_compute_file_sha256() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("wadesk_test_hash.txt");
+        std::fs::write(&test_file, b"WaDesk Secure Updater").expect("write test file");
+
+        let hash = compute_file_sha256(&test_file).expect("compute hash");
+        assert_eq!(hash.len(), 64);
+
+        assert!(verify_sha256(&test_file, &hash));
+        assert!(!verify_sha256(&test_file, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+        let _ = std::fs::remove_file(test_file);
     }
 }

@@ -63,3 +63,23 @@ fn test_user_preferences_defaults_and_roundtrip() {
     assert!(deserialized.privacy_blur);
 }
 
+#[test]
+fn test_update_snooze_and_skip_logic() {
+    use wadesk::config::UserPreferences;
+
+    let mut prefs = UserPreferences::default();
+    let current_time = 1700000000;
+    assert!(!prefs.is_update_suppressed("1.0.9", current_time));
+
+    // Test snooze 24h
+    prefs.snooze_24h(current_time);
+    assert!(prefs.is_update_suppressed("1.0.9", current_time + 3600)); // 1 jam kemudian masih suppressed
+    assert!(!prefs.is_update_suppressed("1.0.9", current_time + 86401)); // Lewat 24 jam sudah tidak suppressed
+
+    // Test skip version
+    prefs.snooze_until = None;
+    prefs.skip_version("1.0.9");
+    assert!(prefs.is_update_suppressed("1.0.9", current_time));
+    assert!(!prefs.is_update_suppressed("1.1.0", current_time)); // Versi lebih baru tidak ter-suppress
+}
+

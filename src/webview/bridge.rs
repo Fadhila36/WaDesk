@@ -40,6 +40,16 @@ pub enum BridgeMessage {
         url: String,
         version: String,
     },
+    #[serde(rename = "snooze_update")]
+    SnoozeUpdate,
+    #[serde(rename = "skip_update")]
+    SkipUpdate {
+        version: String,
+    },
+    #[serde(rename = "install_update")]
+    InstallUpdate {
+        version: String,
+    },
 }
 
 /// Koordinator RPC asinkron antara async Tokio tasks dan WebView2 DOM Agent

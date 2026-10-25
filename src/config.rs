@@ -170,6 +170,10 @@ pub struct UserPreferences {
     pub auto_blur_inactive: bool,
     pub auto_blur_timeout_secs: u64,
     pub media_blur: bool,
+    #[serde(default)]
+    pub snooze_until: Option<u64>,
+    #[serde(default)]
+    pub skipped_version: Option<String>,
 }
 
 impl Default for UserPreferences {
@@ -180,6 +184,8 @@ impl Default for UserPreferences {
             auto_blur_inactive: true,
             auto_blur_timeout_secs: 30,
             media_blur: false,
+            snooze_until: None,
+            skipped_version: None,
         }
     }
 }
@@ -203,6 +209,28 @@ impl UserPreferences {
         let json = serde_json::to_string_pretty(self)?;
         std::fs::write(path, json)?;
         Ok(())
+    }
+
+    pub fn is_update_suppressed(&self, version: &str, current_time_secs: u64) -> bool {
+        if let Some(snooze) = self.snooze_until {
+            if current_time_secs < snooze {
+                return true;
+            }
+        }
+        if let Some(ref skipped) = self.skipped_version {
+            if skipped == version {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn snooze_24h(&mut self, current_time_secs: u64) {
+        self.snooze_until = Some(current_time_secs + 86400);
+    }
+
+    pub fn skip_version(&mut self, version: &str) {
+        self.skipped_version = Some(version.to_string());
     }
 }
 

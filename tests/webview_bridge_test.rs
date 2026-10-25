@@ -35,6 +35,24 @@ fn test_bridge_message_deserialization() {
         }
         _ => panic!("expected BridgeMessage::DownloadUpdate"),
     }
+
+    let json_snooze = r#"{"type":"snooze_update"}"#;
+    let msg_snooze: BridgeMessage = serde_json::from_str(json_snooze).expect("parse snooze should succeed");
+    assert!(matches!(msg_snooze, BridgeMessage::SnoozeUpdate));
+
+    let json_skip = r#"{"type":"skip_update","version":"1.0.8"}"#;
+    let msg_skip: BridgeMessage = serde_json::from_str(json_skip).expect("parse skip should succeed");
+    match msg_skip {
+        BridgeMessage::SkipUpdate { version } => assert_eq!(version, "1.0.8"),
+        _ => panic!("expected BridgeMessage::SkipUpdate"),
+    }
+
+    let json_install = r#"{"type":"install_update","version":"1.0.8"}"#;
+    let msg_install: BridgeMessage = serde_json::from_str(json_install).expect("parse install should succeed");
+    match msg_install {
+        BridgeMessage::InstallUpdate { version } => assert_eq!(version, "1.0.8"),
+        _ => panic!("expected BridgeMessage::InstallUpdate"),
+    }
 }
 
 #[tokio::test]

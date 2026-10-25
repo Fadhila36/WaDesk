@@ -47,6 +47,15 @@ pub fn save_current_preferences() {
     }
 }
 
+pub fn update_preferences<F: FnOnce(&mut UserPreferences)>(f: F) {
+    let mut p = PREFS.lock().unwrap();
+    if let Some(ref mut prefs) = *p {
+        f(prefs);
+    }
+    drop(p);
+    save_current_preferences();
+}
+
 pub fn apply_preferences_to_hwnd(hwnd: HWND) {
     let prefs = get_preferences();
     let script = format!(
@@ -238,7 +247,13 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
 
     let _ = InsertMenuW(menu, 6, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
     let _ = InsertMenuW(menu, 7, MF_BYPOSITION | MF_STRING, 2003, w!("Ganti Akun (Ctrl+Shift+A)"));
-    let _ = InsertMenuW(menu, 8, MF_BYPOSITION | MF_STRING, 2008, w!("Cek Pembaruan..."));
+    let update_title = if let Some(ready_ver) = crate::gui::updater::get_ready_update_version() {
+        format!("⚡ Pasang Pembaruan v{} (Siap)\0", ready_ver)
+    } else {
+        "Cek Pembaruan...\0".to_string()
+    };
+    let wide_update: Vec<u16> = update_title.encode_utf16().collect();
+    let _ = InsertMenuW(menu, 8, MF_BYPOSITION | MF_STRING, 2008, PCWSTR(wide_update.as_ptr()));
     let _ = InsertMenuW(menu, 9, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
     let _ = InsertMenuW(menu, 10, MF_BYPOSITION | MF_STRING, 2004, w!("Keluar"));
 
@@ -308,7 +323,7 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
             save_current_preferences();
         }
         2008 => {
-            crate::gui::updater::spawn_background_update_check(hwnd, false);
+            crate::gui::updater::trigger_manual_update_or_install(hwnd);
         }
         _ => {}
     }
