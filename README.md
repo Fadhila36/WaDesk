@@ -141,14 +141,16 @@ WaDesk does not transmit messages, chat logs, or account tokens to external tele
 - **Portable**: Download `WaDesk-<version>-Windows-x86_64.zip`, extract to any folder, and run `wadesk.exe`.
 
 ### macOS
-Download `WaDesk-<version>-macOS-Universal.dmg` (supports Apple Silicon and Intel):
-1. Open the `.dmg` file and drag `WaDesk.app` into `/Applications`.
-2. Because the build is distributed independently outside the Mac App Store, Apple Gatekeeper may flag the application on first launch.
-3. Open **System Settings > Privacy & Security**, scroll to **Security**, and click **Open Anyway**.
-4. Alternatively, remove the quarantine attribute via Terminal:
-   ```bash
-   xattr -cr /Applications/WaDesk.app
-   ```
+Download `WaDesk-<version>-macOS-Universal.dmg` (supports both Apple Silicon and Intel systems):
+1. Open the `.dmg` file and drag `WaDesk.app` into your `/Applications` directory.
+2. Because WaDesk is distributed directly via GitHub without a paid Apple Developer certificate, macOS Gatekeeper blocks execution on first launch with a warning (*"Apple could not verify WaDesk is free of malware"*).
+3. Choose one of the following methods to grant permission (only required once):
+   - **Method 1 (System Settings)**: Click **Done** on the alert dialog. Open **System Settings > Privacy & Security**, scroll to the **Security** section, and click **Open Anyway**. Enter your Mac password or Touch ID when prompted.
+   - **Method 2 (Control-Click in Finder)**: Open Finder, go to `/Applications`, hold the **Control** key, and click `WaDesk.app` (or right-click). Select **Open** from the context menu, then click **Open** in the dialog.
+   - **Method 3 (Terminal)**: Open Terminal and remove the quarantine attribute:
+     ```bash
+     xattr -cr /Applications/WaDesk.app
+     ```
 
 ### Linux
 - **Debian / Ubuntu**:
