@@ -164,6 +164,8 @@ impl AppWindow {
             set_eco_qos(false);
             self.is_visible.store(true, Ordering::SeqCst);
         }
+        // Auto-check pembaruan di latar belakang (senyap jika sudah terbaru)
+        crate::gui::updater::spawn_background_update_check(self.hwnd, true);
     }
 
     pub fn hide_to_tray(&self) {
@@ -230,8 +232,9 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
 
     let _ = InsertMenuW(menu, 6, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
     let _ = InsertMenuW(menu, 7, MF_BYPOSITION | MF_STRING, 2003, w!("Ganti Akun (Ctrl+Shift+A)"));
-    let _ = InsertMenuW(menu, 8, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = InsertMenuW(menu, 9, MF_BYPOSITION | MF_STRING, 2004, w!("Keluar"));
+    let _ = InsertMenuW(menu, 8, MF_BYPOSITION | MF_STRING, 2008, w!("Cek Pembaruan..."));
+    let _ = InsertMenuW(menu, 9, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+    let _ = InsertMenuW(menu, 10, MF_BYPOSITION | MF_STRING, 2004, w!("Keluar"));
 
     let mut pt = POINT::default();
     let _ = GetCursorPos(&mut pt);
@@ -297,6 +300,9 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
             }
             drop(p);
             save_current_preferences();
+        }
+        2008 => {
+            crate::gui::updater::spawn_background_update_check(hwnd, false);
         }
         _ => {}
     }
