@@ -1,6 +1,6 @@
 ; Inno Setup Script for WaDesk
 #define MyAppName "WaDesk"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "WaDesk Team"
 #define MyAppURL "https://github.com/Fadhila36/WaDesk"
 #define MyAppExeName "wadesk.exe"
