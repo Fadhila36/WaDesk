@@ -3,7 +3,7 @@ use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_YESNO, IDYES, SW_SHOWNORMAL,
+    MessageBoxW, MB_ICONINFORMATION, MB_OK, MB_YESNO, IDYES, SW_SHOWNORMAL,
 };
 
 pub const GITHUB_REPO: &str = "Fadhila36/WaDesk";
@@ -92,17 +92,80 @@ pub async fn fetch_latest_release() -> anyhow::Result<Option<UpdateInfo>> {
     }
 }
 
-/// Menampilkan dialog konfirmasi update ke user
+/// Mengekstrak poin-poin fitur & perbaikan dari release body Markdown agar tampil bersih dan profesional
+pub fn extract_highlights(raw_notes: &str) -> Vec<String> {
+    let mut highlights = Vec::new();
+    let mut in_changelog = false;
+
+    for line in raw_notes.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## What is New") || trimmed.starts_with("### ") {
+            in_changelog = true;
+            continue;
+        }
+        if trimmed.starts_with("## Installation") || trimmed.starts_with("## Checksum") {
+            break;
+        }
+
+        if in_changelog && trimmed.starts_with("- ") {
+            // Hilangkan hash commit "(xxxxxxx)" di akhir jika ada
+            let item = trimmed.trim_start_matches("- ").trim();
+            let clean_item = if let Some(idx) = item.rfind('(') {
+                if item.ends_with(')') {
+                    item[..idx].trim()
+                } else {
+                    item
+                }
+            } else {
+                item
+            };
+
+            if !clean_item.is_empty() {
+                highlights.push(format!("• {}", clean_item));
+            }
+        }
+
+        if highlights.len() >= 5 {
+            break;
+        }
+    }
+
+    if highlights.is_empty() {
+        // Fallback jika format markdown berbeda
+        for line in raw_notes.lines() {
+            let t = line.trim();
+            if t.starts_with("- ") || t.starts_with("* ") {
+                let item = t.trim_start_matches(|c| c == '-' || c == '*' || c == ' ').trim();
+                if !item.is_empty() {
+                    highlights.push(format!("• {}", item));
+                }
+            }
+            if highlights.len() >= 4 {
+                break;
+            }
+        }
+    }
+
+    highlights
+}
+
+/// Menampilkan dialog konfirmasi update ke user dengan tampilan yang rapi dan profesional
 pub fn prompt_user_for_update(hwnd: HWND, info: &UpdateInfo) {
-    let clean_notes = if info.release_notes.is_empty() {
-        "Peningkatan stabilitas dan performa.".to_string()
+    let highlights = extract_highlights(&info.release_notes);
+    let summary = if highlights.is_empty() {
+        "  • Peningkatan stabilitas dan optimasi performa sistem.".to_string()
     } else {
-        info.release_notes.lines().take(6).collect::<Vec<_>>().join("\n")
+        highlights.join("\n")
     };
 
     let msg = format!(
-        "Versi terbaru WaDesk v{} sudah tersedia!\n\nVersi saat ini: v{}\n\nCatatan Rilis:\n{}\n\nApakah Anda ingin mengunduh & memperbarui sekarang?",
-        info.version, CURRENT_VERSION, clean_notes
+        "Versi baru WaDesk (v{}) telah dirilis.\n\n\
+        Versi saat ini : v{}\n\
+        Versi terbaru : v{}\n\n\
+        Sorotan Perubahan:\n\
+        {}\n\n\
+        Unduh dan pasang pembaruan sekarang?",
+        info.version, CURRENT_VERSION, info.version, summary
     );
 
     let wide_msg: Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
@@ -113,7 +176,7 @@ pub fn prompt_user_for_update(hwnd: HWND, info: &UpdateInfo) {
             hwnd,
             PCWSTR(wide_msg.as_ptr()),
             PCWSTR(title.as_ptr()),
-            MB_YESNO | MB_ICONQUESTION,
+            MB_YESNO | MB_ICONINFORMATION,
         );
 
         if result == IDYES {
@@ -201,5 +264,26 @@ mod tests {
         assert!(!is_newer_version("1.0.5", "1.0.5"));
         assert!(!is_newer_version("1.0.5", "1.0.4"));
         assert!(!is_newer_version("2.0.0", "1.9.9"));
+    }
+
+    #[test]
+    fn test_extract_highlights() {
+        let raw_notes = r#"# WaDesk v1.0.8
+
+WaDesk is a desktop client for WhatsApp Web built with Rust.
+
+## What is New in This Release
+- Refactor overlay FAB into centered modal (abc1234)
+- Add Ctrl+Shift+A global shortcut (def5678)
+- Update CI/CD runner cleanup workflow
+
+## Installation
+Run the installer or portable exe.
+"#;
+        let highlights = extract_highlights(raw_notes);
+        assert_eq!(highlights.len(), 3);
+        assert_eq!(highlights[0], "• Refactor overlay FAB into centered modal");
+        assert_eq!(highlights[1], "• Add Ctrl+Shift+A global shortcut");
+        assert_eq!(highlights[2], "• Update CI/CD runner cleanup workflow");
     }
 }
