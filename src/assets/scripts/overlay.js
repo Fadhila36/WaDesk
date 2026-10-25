@@ -1,49 +1,51 @@
 // Account switcher overlay UI in Shadow DOM
 (function () {
     var CSS = `
-        /* Reposisi FAB ke pojok kanan bawah dengan desain subtle pill/badge modern */
+        /* Floating button disembunyikan agar layar WhatsApp bersih */
         .wadesk-fab {
-            position: fixed; right: 20px; bottom: 20px; height: 32px; padding: 0 12px;
-            border-radius: 16px; background: rgba(32, 44, 51, 0.75); color: #8696a0; border: 1px solid rgba(42, 57, 66, 0.8);
-            backdrop-filter: blur(8px); cursor: pointer; font: 500 12px system-ui, sans-serif; display: flex;
-            align-items: center; justify-content: center; gap: 6px; box-sizing: border-box;
-            z-index: 999999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-            user-select: none;
+            display: none !important;
         }
-        .wadesk-fab:hover {
-            background: rgba(42, 57, 66, 0.95); color: #e9edef; transform: translateY(-2px);
-            border-color: #00a884; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        .wadesk-backdrop {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(4px); z-index: 999998; display: none;
+            align-items: center; justify-content: center;
         }
-        .wadesk-fab-icon {
-            font-size: 13px; color: #00a884;
-        }
+        .wadesk-backdrop.show { display: flex; }
         .wadesk-panel {
-            position: fixed; right: 20px; bottom: 60px; width: 250px; background: #233138;
-            border: 1px solid #2a3942; border-radius: 12px; padding: 8px; color: #e9edef;
-            font: 400 13px system-ui, sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            z-index: 999999; display: none; flex-direction: column; gap: 4px;
-            animation: wadesk-fadein 0.15s ease-out;
+            width: 320px; background: #233138;
+            border: 1px solid #2a3942; border-radius: 12px; padding: 12px; color: #e9edef;
+            font: 400 13px system-ui, sans-serif; box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+            display: flex; flex-direction: column; gap: 6px;
+            animation: wadesk-fadein 0.18s cubic-bezier(0.16, 1, 0.3, 1);
         }
         @keyframes wadesk-fadein {
-            from { opacity: 0; transform: translateY(6px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
         }
-        .wadesk-panel.show { display: flex; }
+        .wadesk-hdr-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 4px 6px 8px 6px; border-bottom: 1px solid #2a3942; margin-bottom: 4px;
+        }
         .wadesk-hdr {
-            padding: 6px 10px; font-size: 11px; letter-spacing: .08em;
-            text-transform: uppercase; color: #8696a0; font-weight: 700;
+            font-size: 11px; letter-spacing: .08em;
+            text-transform: uppercase; color: #00a884; font-weight: 700;
         }
+        .wadesk-close {
+            cursor: pointer; color: #8696a0; font-size: 16px; line-height: 1;
+            padding: 2px 6px; border-radius: 4px;
+        }
+        .wadesk-close:hover { color: #e9edef; background: #2a3942; }
         .wadesk-row {
-            display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-            border-radius: 6px; cursor: pointer; transition: background 0.15s;
+            display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+            border-radius: 8px; cursor: pointer; transition: background 0.15s;
         }
         .wadesk-row:hover { background: #2a3942; }
         .wadesk-row.active { background: #182229; font-weight: 600; cursor: default; }
         .wadesk-dot { width: 8px; height: 8px; border-radius: 50%; background: #00a884; }
         .wadesk-sep { height: 1px; background: #2a3942; margin: 4px 0; }
         .wadesk-act {
-            display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-            border-radius: 6px; cursor: pointer; color: #00a884; font-weight: 500;
+            display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+            border-radius: 8px; cursor: pointer; color: #00a884; font-weight: 500;
         }
         .wadesk-act:hover { background: #2a3942; }
     `;
@@ -57,40 +59,47 @@
         style.textContent = CSS;
         root.appendChild(style);
 
-        var fab = document.createElement('div');
-        fab.className = 'wadesk-fab';
-        fab.innerHTML = '<span class="wadesk-fab-icon">⚡</span><span>Akun</span>';
-        fab.title = 'WaDesk Account Switcher (Ctrl+Shift+A)';
+        var backdrop = document.createElement('div');
+        backdrop.className = 'wadesk-backdrop';
 
         var panel = document.createElement('div');
         panel.className = 'wadesk-panel';
         panel.innerHTML = `
-            <div class="wadesk-hdr">WaDesk Accounts</div>
+            <div class="wadesk-hdr-row">
+                <span class="wadesk-hdr">⚡ WaDesk Multi-Akun</span>
+                <span class="wadesk-close" id="wadesk-close-btn">&times;</span>
+            </div>
             <div id="wadesk-account-list"></div>
             <div class="wadesk-sep"></div>
-            <div class="wadesk-act" id="wadesk-add-btn">+ Tambah Akun</div>
+            <div class="wadesk-act" id="wadesk-add-btn">+ Tambah Akun Baru</div>
         `;
 
-        function togglePanel(e) {
-            if (e) e.stopPropagation();
-            panel.classList.toggle('show');
-            if (panel.classList.contains('show')) {
-                refresh();
-            }
+        function openModal() {
+            backdrop.classList.add('show');
+            refresh();
         }
 
-        fab.addEventListener('click', togglePanel);
+        function closeModal() {
+            backdrop.classList.remove('show');
+        }
 
-        document.addEventListener('click', function() {
-            panel.classList.remove('show');
+        backdrop.addEventListener('click', function(e) {
+            if (e.target === backdrop) {
+                closeModal();
+            }
         });
 
         panel.addEventListener('click', function(e) {
             e.stopPropagation();
         });
 
-        root.appendChild(fab);
-        root.appendChild(panel);
+        var closeBtn = panel.querySelector('#wadesk-close-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', closeModal);
+        }
+
+        backdrop.appendChild(panel);
+        root.appendChild(backdrop);
         document.documentElement.appendChild(host);
 
         function refresh() {
@@ -123,6 +132,7 @@
                 if (acct.id !== currentId) {
                     row.addEventListener('click', function() {
                         if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                            closeModal();
                             window.chrome.webview.postMessage({ type: 'switch_account', id: acct.id });
                         }
                     });
@@ -132,14 +142,15 @@
         };
 
         window.wadeskOverlay = {
-            open: function() {
-                panel.classList.add('show');
-                refresh();
-            },
-            close: function() {
-                panel.classList.remove('show');
-            },
-            toggle: togglePanel
+            open: openModal,
+            close: closeModal,
+            toggle: function() {
+                if (backdrop.classList.contains('show')) {
+                    closeModal();
+                } else {
+                    openModal();
+                }
+            }
         };
     }
 
