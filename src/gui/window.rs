@@ -203,6 +203,7 @@ impl AppWindow {
 
 impl Drop for AppWindow {
     fn drop(&mut self) {
+        crate::gui::updater::execute_pending_install_on_exit();
         unsafe {
             let _ = UnregisterHotKey(self.hwnd, HOTKEY_PRIVACY);
             let _ = UnregisterHotKey(self.hwnd, HOTKEY_OVERLAY);
@@ -303,6 +304,7 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
             eval_script_on_hwnd(hwnd, "window.wadeskOverlay && window.wadeskOverlay.open();");
         }
         2004 => {
+            crate::gui::updater::execute_pending_install_on_exit();
             PostQuitMessage(0);
         }
         2005 => {
@@ -441,6 +443,7 @@ unsafe extern "system" fn wnd_proc(
             LRESULT(0)
         }
         WM_DESTROY => {
+            crate::gui::updater::execute_pending_install_on_exit();
             PostQuitMessage(0);
             LRESULT(0)
         }

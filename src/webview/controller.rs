@@ -245,6 +245,10 @@ impl WebViewHost {
                                 let version = val.get("version").and_then(|v| v.as_str()).unwrap_or("latest");
                                 crate::gui::updater::execute_preloaded_installer(hwnd, version);
                             }
+                            Some("schedule_install_on_exit") => {
+                                let version = val.get("version").and_then(|v| v.as_str()).unwrap_or("latest");
+                                crate::gui::updater::schedule_install_on_exit(version);
+                            }
                             Some("get_accounts") => {
                                 let paths = crate::config::AppPaths::for_profile(crate::config::DEFAULT_PROFILE_ID);
                                 let manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);

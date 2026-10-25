@@ -13,6 +13,9 @@ pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Cache rilis yang sudah terunduh di latar belakang dan siap dipasang
 static READY_UPDATE: Mutex<Option<(UpdateInfo, PathBuf)>> = Mutex::new(None);
 
+/// Path installer yang dijadwalkan untuk dipasang secara senyap saat aplikasi ditutup
+static PENDING_INSTALL_ON_EXIT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
 #[derive(Debug, Deserialize)]
 pub struct GitHubAsset {
     pub name: String,
@@ -40,6 +43,49 @@ pub struct UpdateInfo {
 /// Mengembalikan versi rilis yang sudah siap diinstal (jika ada) untuk label tray menu
 pub fn get_ready_update_version() -> Option<String> {
     READY_UPDATE.lock().unwrap().as_ref().map(|(info, _)| info.version.clone())
+}
+
+/// Menjadwalkan installer untuk dijalankan secara otomatis saat aplikasi ditutup (Install on Exit)
+pub fn schedule_install_on_exit(version: &str) {
+    let installer_path = {
+        let lock = READY_UPDATE.lock().unwrap();
+        if let Some((_, ref path)) = *lock {
+            path.clone()
+        } else {
+            std::env::temp_dir().join(format!("WaDesk-Setup-v{}.exe", version))
+        }
+    };
+
+    if installer_path.exists() {
+        *PENDING_INSTALL_ON_EXIT.lock().unwrap() = Some(installer_path);
+    }
+}
+
+/// Menjalankan installer yang tertunda saat aplikasi ditutup
+pub fn execute_pending_install_on_exit() {
+    let pending = PENDING_INSTALL_ON_EXIT.lock().unwrap().take();
+    if let Some(path) = pending {
+        if path.exists() {
+            let wide_path: Vec<u16> = path
+                .to_string_lossy()
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            let wide_args: Vec<u16> = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART\0"
+                .encode_utf16()
+                .collect();
+            unsafe {
+                let _ = ShellExecuteW(
+                    HWND(std::ptr::null_mut()),
+                    w!("open"),
+                    PCWSTR(wide_path.as_ptr()),
+                    PCWSTR(wide_args.as_ptr()),
+                    PCWSTR::null(),
+                    SW_SHOWNORMAL,
+                );
+            }
+        }
+    }
 }
 
 /// Menunda pemberitahuan pembaruan selama 24 jam
@@ -240,7 +286,7 @@ pub fn show_update_modal(hwnd: HWND, info: &UpdateInfo, is_ready: bool) {
 }
 
 /// Jalankan installer pembaruan dengan silent flag otomatis (/VERYSILENT /SUPPRESSMSGBOXES /NORESTART)
-pub fn execute_installer(installer_path: &Path) {
+pub fn execute_installer(installer_path: &Path, hwnd: Option<HWND>) -> bool {
     let wide_path: Vec<u16> = installer_path
         .to_string_lossy()
         .encode_utf16()
@@ -252,15 +298,28 @@ pub fn execute_installer(installer_path: &Path) {
         .encode_utf16()
         .collect();
 
-    unsafe {
-        let _ = ShellExecuteW(
+    let res = unsafe {
+        ShellExecuteW(
             HWND(std::ptr::null_mut()),
             w!("open"),
             PCWSTR(wide_path.as_ptr()),
             PCWSTR(wide_args.as_ptr()),
             PCWSTR::null(),
             SW_SHOWNORMAL,
-        );
+        )
+    };
+
+    let code = res.0 as isize;
+    if code <= 32 {
+        if let Some(h) = hwnd {
+            let msg = format!("Gagal menjalankan pemasang (Kode Windows: {}).", code);
+            let script = format!(
+                "window.wadeskUpdateError && window.wadeskUpdateError('{}');",
+                msg
+            );
+            crate::gui::window::eval_script(h, &script);
+        }
+        return false;
     }
 
     // Beri jeda 800ms lalu tutup WaDesk agar installer dapat mengganti binary tanpa konflik kunci file
@@ -270,10 +329,11 @@ pub fn execute_installer(installer_path: &Path) {
             windows::Win32::UI::WindowsAndMessaging::PostQuitMessage(0);
         }
     });
+    true
 }
 
 /// Menjalankan file installer yang sudah ter-preload di latar belakang
-pub fn execute_preloaded_installer(_hwnd: HWND, version: &str) {
+pub fn execute_preloaded_installer(hwnd: HWND, version: &str) {
     let ready_opt = READY_UPDATE.lock().unwrap().take();
     let installer_path = if let Some((_, path)) = ready_opt {
         path
@@ -281,8 +341,8 @@ pub fn execute_preloaded_installer(_hwnd: HWND, version: &str) {
         std::env::temp_dir().join(format!("WaDesk-Setup-v{}.exe", version))
     };
 
-    if installer_path.exists() {
-        execute_installer(&installer_path);
+    if installer_path.exists() && std::fs::metadata(&installer_path).map(|m| m.len() > 100_000).unwrap_or(false) {
+        execute_installer(&installer_path, Some(hwnd));
     } else {
         // Fallback jika file terhapus: buka halaman download
         let fallback_url = format!("https://github.com/{}/releases/latest", GITHUB_REPO);
@@ -297,6 +357,8 @@ pub fn execute_preloaded_installer(_hwnd: HWND, version: &str) {
                 SW_SHOWNORMAL,
             );
         }
+        let script = "window.wadeskUpdateError && window.wadeskUpdateError('File installer belum siap. Mengalihkan ke halaman rilis...');";
+        crate::gui::window::eval_script(hwnd, script);
     }
 }
 
@@ -422,7 +484,7 @@ pub fn spawn_background_download(hwnd: HWND, url: String, version: String) {
 
             tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
 
-            execute_installer(&temp_file);
+            execute_installer(&temp_file, Some(hwnd));
         });
     });
 }
@@ -434,7 +496,7 @@ pub fn cleanup_temp_installers() {
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
-                if file_name.starts_with("WaDesk-Setup-v") && file_name.ends_with(".exe") {
+                if file_name.starts_with("WaDesk-Setup-v") && (file_name.ends_with(".exe") || file_name.ends_with(".exe.part")) {
                     let is_current_cached = READY_UPDATE
                         .lock()
                         .unwrap()
@@ -489,6 +551,7 @@ pub fn spawn_background_update_check(hwnd: HWND, silent_if_latest: bool) {
                     // Silent Background Pre-download jika ada download URL
                     if let Some(ref dl_url) = info.download_url {
                         let temp_file = std::env::temp_dir().join(format!("WaDesk-Setup-v{}.exe", info.version));
+                        let part_file = std::env::temp_dir().join(format!("WaDesk-Setup-v{}.exe.part", info.version));
                         let should_download = !temp_file.exists();
 
                         if should_download {
@@ -499,27 +562,39 @@ pub fn spawn_background_update_check(hwnd: HWND, silent_if_latest: bool) {
                             if let Ok(c) = client {
                                 if let Ok(mut resp) = c.get(dl_url).send().await {
                                     if resp.status().is_success() {
-                                        if let Ok(mut f) = std::fs::File::create(&temp_file) {
+                                        if let Ok(mut f) = std::fs::File::create(&part_file) {
                                             use std::io::Write;
+                                            let mut write_ok = true;
                                             while let Ok(Some(chunk)) = resp.chunk().await {
-                                                let _ = f.write_all(&chunk);
+                                                if f.write_all(&chunk).is_err() {
+                                                    write_ok = false;
+                                                    break;
+                                                }
                                             }
                                             let _ = f.flush();
+                                            drop(f);
+                                            if write_ok {
+                                                let _ = std::fs::rename(&part_file, &temp_file);
+                                            } else {
+                                                let _ = std::fs::remove_file(&part_file);
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
 
-                        // Verifikasi SHA-256 jika ada hash
+                        // Verifikasi SHA-256 jika ada hash, atau minimal file ada dan size > 500 KB
                         let is_valid = if let Some(ref expected) = info.expected_checksum {
                             verify_sha256(&temp_file, expected)
                         } else {
-                            temp_file.exists() && std::fs::metadata(&temp_file).map(|m| m.len() > 0).unwrap_or(false)
+                            temp_file.exists() && std::fs::metadata(&temp_file).map(|m| m.len() > 500_000).unwrap_or(false)
                         };
 
                         if is_valid {
-                            *READY_UPDATE.lock().unwrap() = Some((info.clone(), temp_file));
+                            *READY_UPDATE.lock().unwrap() = Some((info.clone(), temp_file.clone()));
+                            // Jadwalkan otomatis pasang saat keluar sebagai default yang aman bagi user
+                            *PENDING_INSTALL_ON_EXIT.lock().unwrap() = Some(temp_file);
                             show_update_modal(hwnd, &info, true);
                             return;
                         }
@@ -628,5 +703,19 @@ Run the installer or portable exe.
 
         cleanup_temp_installers();
         assert!(!dummy_old_installer.exists(), "Old temp installer should be cleaned up");
+    }
+
+    #[test]
+    fn test_schedule_install_on_exit() {
+        let temp_dir = std::env::temp_dir();
+        let dummy_installer = temp_dir.join("WaDesk-Setup-v99.9.9.exe");
+        std::fs::write(&dummy_installer, b"dummy installer payload").expect("create dummy installer");
+
+        schedule_install_on_exit("99.9.9");
+        let pending = PENDING_INSTALL_ON_EXIT.lock().unwrap().take();
+        assert!(pending.is_some());
+        assert_eq!(pending.unwrap(), dummy_installer);
+
+        let _ = std::fs::remove_file(dummy_installer);
     }
 }

@@ -288,13 +288,22 @@
         document.documentElement.appendChild(host);
 
         var currentUpdateData = null;
+        var restartTimer = null;
 
         function closeModal() {
+            if (restartTimer) {
+                clearInterval(restartTimer);
+                restartTimer = null;
+            }
             backdrop.classList.remove('show');
         }
 
         function showModal(data) {
             currentUpdateData = data;
+            if (restartTimer) {
+                clearInterval(restartTimer);
+                restartTimer = null;
+            }
 
             var list = root.getElementById('wadesk-changelog-items');
             list.innerHTML = '';
@@ -310,22 +319,25 @@
             } else {
                 var li = document.createElement('li');
                 li.className = 'wadesk-changelog-item';
-                li.textContent = 'Peningkatan stabilitas dan perbaikan sistem.';
+                li.textContent = 'Peningkatan performa, keamanan, dan stabilitas obrolan.';
                 list.appendChild(li);
             }
 
             var titleText = root.getElementById('wadesk-title-text');
             var subText = root.getElementById('wadesk-subtext');
             var btnText = root.getElementById('wadesk-btn-text');
+            var btnLater = root.getElementById('wadesk-btn-later');
 
             if (data.isReady) {
                 titleText.textContent = 'Pembaruan Siap Dipasang';
-                subText.textContent = 'Versi ' + data.latestVersion + ' telah diunduh di latar belakang. Mulai ulang WaDesk untuk menerapkan pembaruan.';
+                subText.textContent = 'Versi ' + data.latestVersion + ' telah diunduh di latar belakang. Anda dapat memasangnya saat aplikasi ditutup agar tidak mengganggu aktivitas Anda, atau mulai ulang sekarang.';
                 btnText.textContent = 'Mulai Ulang Sekarang';
+                btnLater.textContent = 'Pasang Saat Keluar';
             } else {
                 titleText.textContent = 'Pembaruan Tersedia';
-                subText.textContent = 'Versi ' + data.latestVersion + ' kini tersedia untuk diunduh (versi saat ini: ' + data.currentVersion + ').';
-                btnText.textContent = 'Perbarui Sekarang';
+                subText.textContent = 'Versi ' + data.latestVersion + ' kini tersedia (versi saat ini: ' + data.currentVersion + ').';
+                btnText.textContent = 'Unduh di Latar Belakang';
+                btnLater.textContent = 'Nanti Saja';
             }
 
             // Reset progress box
@@ -334,13 +346,48 @@
             root.getElementById('wadesk-progress-percent').textContent = '0%';
             root.getElementById('wadesk-actions-box').style.display = 'flex';
             root.getElementById('wadesk-btn-download').disabled = false;
-            root.getElementById('wadesk-btn-later').style.display = 'inline-flex';
+            btnLater.style.display = 'inline-flex';
 
             backdrop.classList.add('show');
         }
 
-        root.getElementById('wadesk-btn-close').addEventListener('click', closeModal);
-        root.getElementById('wadesk-btn-later').addEventListener('click', closeModal);
+        root.getElementById('wadesk-btn-close').addEventListener('click', function () {
+            if (currentUpdateData && currentUpdateData.isReady) {
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({
+                        type: 'schedule_install_on_exit',
+                        version: currentUpdateData.latestVersion
+                    });
+                }
+            }
+            closeModal();
+        });
+
+        root.getElementById('wadesk-btn-later').addEventListener('click', function () {
+            // Jika dalam mode hitung mundur Mulai Ulang, tombol ini berfungsi sebagai "Batal"
+            if (restartTimer) {
+                clearInterval(restartTimer);
+                restartTimer = null;
+                root.getElementById('wadesk-btn-download').disabled = false;
+                root.getElementById('wadesk-btn-text').textContent = 'Mulai Ulang Sekarang';
+                root.getElementById('wadesk-btn-later').textContent = 'Pasang Saat Keluar';
+                window.wadeskShowToast('Mulai ulang dibatalkan.');
+                return;
+            }
+
+            if (currentUpdateData && currentUpdateData.isReady) {
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({
+                        type: 'schedule_install_on_exit',
+                        version: currentUpdateData.latestVersion
+                    });
+                }
+                closeModal();
+                window.wadeskShowToast('Pembaruan akan dipasang otomatis saat WaDesk ditutup. Anda dapat mengetik dengan aman.');
+            } else {
+                closeModal();
+            }
+        });
 
         // Snooze 24 Jam
         root.getElementById('wadesk-btn-snooze').addEventListener('click', function () {
@@ -366,6 +413,14 @@
             if (e.target === backdrop) {
                 var progressBox = root.getElementById('wadesk-progress-box');
                 if (!progressBox.classList.contains('show')) {
+                    if (currentUpdateData && currentUpdateData.isReady) {
+                        if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                            window.chrome.webview.postMessage({
+                                type: 'schedule_install_on_exit',
+                                version: currentUpdateData.latestVersion
+                            });
+                        }
+                    }
                     closeModal();
                 }
             }
@@ -376,6 +431,14 @@
             if (e.key === 'Escape' && backdrop.classList.contains('show')) {
                 var progressBox = root.getElementById('wadesk-progress-box');
                 if (!progressBox.classList.contains('show')) {
+                    if (currentUpdateData && currentUpdateData.isReady) {
+                        if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                            window.chrome.webview.postMessage({
+                                type: 'schedule_install_on_exit',
+                                version: currentUpdateData.latestVersion
+                            });
+                        }
+                    }
                     closeModal();
                 }
             }
@@ -384,16 +447,42 @@
         root.getElementById('wadesk-btn-download').addEventListener('click', function () {
             if (!currentUpdateData) return;
 
-            // Jika installer sudah di-preload di background, langsung trigger instalasi
+            // Jika installer sudah di-preload di background, mulai hitung mundur 2 detik agar aman dan bisa dibatalkan
             if (currentUpdateData.isReady) {
-                root.getElementById('wadesk-btn-download').disabled = true;
-                root.getElementById('wadesk-btn-text').textContent = 'Menyiapkan pemasangan...';
-                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-                    window.chrome.webview.postMessage({
-                        type: 'install_update',
-                        version: currentUpdateData.latestVersion
-                    });
-                }
+                var secondsLeft = 2;
+                var btnDownload = root.getElementById('wadesk-btn-download');
+                var btnLater = root.getElementById('wadesk-btn-later');
+                var btnText = root.getElementById('wadesk-btn-text');
+
+                btnLater.textContent = 'Batal';
+                btnText.textContent = 'Menutup WaDesk (' + secondsLeft + 's)...';
+
+                restartTimer = setInterval(function () {
+                    secondsLeft -= 1;
+                    if (secondsLeft > 0) {
+                        btnText.textContent = 'Menutup WaDesk (' + secondsLeft + 's)...';
+                    } else {
+                        clearInterval(restartTimer);
+                        restartTimer = null;
+                        btnDownload.disabled = true;
+                        btnText.textContent = 'Memulai pemasangan...';
+
+                        if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                            window.chrome.webview.postMessage({
+                                type: 'install_update',
+                                version: currentUpdateData.latestVersion
+                            });
+                        }
+
+                        // Safety fallback timeout: jika setelah 5 detik aplikasi belum keluar (misal ditolak Windows UAC)
+                        setTimeout(function () {
+                            btnDownload.disabled = false;
+                            btnText.textContent = 'Mulai Ulang Sekarang';
+                            btnLater.textContent = 'Pasang Saat Keluar';
+                        }, 5000);
+                    }
+                }, 1000);
+
                 return;
             }
 
