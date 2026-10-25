@@ -1,5 +1,15 @@
 use std::time::{Duration, Instant};
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendMessageRequest {
+    pub text: String,
+    #[serde(default)]
+    pub chat: Option<String>,
+    #[serde(default)]
+    pub pace_ms: Option<u64>,
+}
 
 #[derive(Default)]
 pub struct SendPacer {

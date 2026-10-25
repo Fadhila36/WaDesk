@@ -13,7 +13,7 @@ mod windows_app {
     use wadesk::win32::audio::rename_audio_session;
     use wadesk::win32::instance::SingleInstanceGuard;
 
-    fn parse_cli_args() -> (String, bool) {
+    fn parse_cli_args() -> (String, bool, bool) {
         let args: Vec<String> = env::args().collect();
         for arg in &args[1..] {
             if arg == "--help" || arg == "-h" {
@@ -21,6 +21,7 @@ mod windows_app {
                 println!("\nUsage: wadesk.exe [OPTIONS]");
                 println!("\nOptions:");
                 println!("  -p, --profile <ID>    Start with a specific account profile (default: 'default')");
+                println!("  -m, --minimized       Start minimized directly to the system tray");
                 println!("  -h, --help            Print help information");
                 println!("  -V, --version         Print version information");
                 std::process::exit(0);
@@ -30,18 +31,20 @@ mod windows_app {
             }
         }
 
+        let start_minimized = args.iter().any(|a| a == "--minimized" || a == "-m" || a == "--tray");
+
         let mut i = 1;
         while i < args.len() {
             if (args[i] == "--profile" || args[i] == "-p") && i + 1 < args.len() {
-                return (args[i + 1].clone(), true);
+                return (args[i + 1].clone(), true, start_minimized);
             }
             i += 1;
         }
-        (DEFAULT_PROFILE_ID.to_string(), false)
+        (DEFAULT_PROFILE_ID.to_string(), false, start_minimized)
     }
 
     pub fn run() -> anyhow::Result<()> {
-        let (profile_id, is_explicit) = parse_cli_args();
+        let (profile_id, is_explicit, start_minimized) = parse_cli_args();
         let paths = AppPaths::for_profile(&profile_id);
         paths.ensure_dirs()?;
 
@@ -164,7 +167,11 @@ mod windows_app {
             }
         }
 
-        window.show();
+        if start_minimized {
+            window.hide_to_tray();
+        } else {
+            window.show();
+        }
         window.run_message_loop();
 
         // 7. Save window state on exit

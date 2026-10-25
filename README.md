@@ -116,6 +116,24 @@ curl.exe -X POST $config.url `
 | `send_message` | Sends a plain text message to the currently opened chat | `{"text": "Message content"}` |
 | `export_chat` | Exports message history from the active chat | `{"limit": 100}` |
 
+### HTTP REST API (`/send`)
+
+For scripts or third-party webhooks that do not use the JSON-RPC format, WaDesk exposes a direct REST endpoint:
+
+- **Method**: `POST`
+- **URL**: `http://127.0.0.1:5987/send`
+- **Headers**:
+  - `Content-Type: application/json`
+  - `Authorization: Bearer <TOKEN_FROM_MCP_JSON>`
+- **Payload**:
+  ```json
+  {
+    "text": "Hello from external script",
+    "chat": "Contact or Group Name",
+    "pace_ms": 1000
+  }
+  ```
+
 ---
 
 ## Data Storage
@@ -126,8 +144,11 @@ Session storage, authentication credentials, and local settings are stored local
 %APPDATA%\WaDesk\UserData                  # Primary profile session and cache
 %APPDATA%\WaDesk\profiles\<id>\UserData    # Additional profile data
 %APPDATA%\WaDesk\accounts.json             # Profile list and display names
-%APPDATA%\WaDesk\window.json               # Window dimensions and position
-%APPDATA%\WaDesk\mcp_token                 # DPAPI-encrypted API token
+%APPDATA%\WaDesk\window_state.json         # Window dimensions, position, and maximize state
+%APPDATA%\WaDesk\prefs.json                # User preferences (privacy blur, mute on minimize)
+%APPDATA%\WaDesk\webhooks.json             # Registered webhook notification URLs
+%APPDATA%\WaDesk\mcp.json                  # Loopback server discovery endpoint and bearer token
+%APPDATA%\WaDesk\mcp-token                 # DPAPI-encrypted API bearer token
 ```
 
 WaDesk does not transmit messages, chat logs, or account tokens to external telemetry servers. Network requests connect directly to `web.whatsapp.com` and GitHub for release checks.

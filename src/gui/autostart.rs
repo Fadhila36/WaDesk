@@ -43,7 +43,7 @@ pub fn set_autostart(enabled: bool) -> Result<()> {
         let res = if enabled {
             let exe_path = std::env::current_exe()
                 .map_err(|e| WaDeskError::Config(format!("Gagal mendapatkan path exe: {}", e)))?;
-            let formatted_cmd = format!("\"{}\"", exe_path.to_string_lossy());
+            let formatted_cmd = format!("\"{}\" --minimized", exe_path.to_string_lossy());
             let wide_cmd: Vec<u16> = formatted_cmd.encode_utf16().chain(std::iter::once(0)).collect();
             let slice = std::slice::from_raw_parts(
                 wide_cmd.as_ptr() as *const u8,

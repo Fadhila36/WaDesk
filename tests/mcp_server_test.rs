@@ -103,3 +103,25 @@ async fn test_json_rpc_tools_call_with_dispatcher() {
     let text = content[0]["text"].as_str().unwrap();
     assert!(text.contains("Halo dari Antigravity"));
 }
+
+#[tokio::test]
+async fn test_send_api_request_and_normalization() {
+    use wadesk::server::send_api::{normalize_phone, SendMessageRequest, SendPacer};
+
+    let cleaned = normalize_phone("+62 812-3456-7890");
+    assert_eq!(cleaned, "6281234567890");
+
+    let pacer = SendPacer::default();
+    pacer.pace(10).await;
+
+    let req_json = serde_json::json!({
+        "text": "Pesan tes langsung",
+        "chat": "Keluarga",
+        "pace_ms": 50
+    });
+
+    let parsed: SendMessageRequest = serde_json::from_value(req_json).expect("valid parse");
+    assert_eq!(parsed.text, "Pesan tes langsung");
+    assert_eq!(parsed.chat, Some("Keluarga".to_string()));
+    assert_eq!(parsed.pace_ms, Some(50));
+}

@@ -38,6 +38,7 @@ pub async fn start_loopback_server(token: String, paths: &AppPaths) -> Result<Se
 
     let app = Router::new()
         .route("/mcp", post(mcp_handler))
+        .route("/send", post(send_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -82,4 +83,32 @@ async fn mcp_handler(
 
     let resp = handle_json_rpc(req).await;
     (StatusCode::OK, Json(resp)).into_response()
+}
+
+async fn send_handler(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Json(payload): Json<send_api::SendMessageRequest>,
+) -> Response {
+    let auth_header = headers.get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default();
+
+    if !TokenManager::verify_bearer(&state.token, auth_header) {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    if let Some(pace) = payload.pace_ms {
+        state.pacer.pace(pace).await;
+    }
+
+    if let Some(ref chat_name) = payload.chat {
+        let _ = mcp::dispatch_tool_call("open_chat", serde_json::json!({ "name": chat_name })).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+    }
+
+    match mcp::dispatch_tool_call("send_message", serde_json::json!({ "text": payload.text })).await {
+        Ok(res) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "result": res }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+    }
 }

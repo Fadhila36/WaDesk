@@ -49,19 +49,52 @@ impl WindowState {
 
     pub fn from_hwnd(hwnd: HWND) -> Self {
         unsafe {
+            let mut wp = WINDOWPLACEMENT {
+                length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+                ..Default::default()
+            };
+
             let maximized = IsZoomed(hwnd).as_bool();
-            let mut rect = RECT::default();
-            let _ = GetWindowRect(hwnd, &mut rect);
 
-            let width = (rect.right - rect.left).max(400);
-            let height = (rect.bottom - rect.top).max(300);
+            if GetWindowPlacement(hwnd, &mut wp).is_ok() {
+                let rect = wp.rcNormalPosition;
+                let width = (rect.right - rect.left).max(400);
+                let height = (rect.bottom - rect.top).max(300);
 
-            Self {
-                x: Some(rect.left),
-                y: Some(rect.top),
-                width,
-                height,
-                maximized,
+                // Abaikan koordinat -32000 jika jendela sedang diminimalkan ke tray
+                let (x, y) = if rect.left > -10000 && rect.top > -10000 {
+                    (Some(rect.left), Some(rect.top))
+                } else {
+                    (None, None)
+                };
+
+                Self {
+                    x,
+                    y,
+                    width,
+                    height,
+                    maximized,
+                }
+            } else {
+                let mut rect = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut rect);
+
+                let width = (rect.right - rect.left).max(400);
+                let height = (rect.bottom - rect.top).max(300);
+
+                let (x, y) = if rect.left > -10000 && rect.top > -10000 {
+                    (Some(rect.left), Some(rect.top))
+                } else {
+                    (None, None)
+                };
+
+                Self {
+                    x,
+                    y,
+                    width,
+                    height,
+                    maximized,
+                }
             }
         }
     }
