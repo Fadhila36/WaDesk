@@ -175,6 +175,10 @@ pub fn extract_highlights(raw_notes: &str) -> Vec<String> {
 
         if in_changelog && trimmed.starts_with("- ") {
             let item = trimmed.trim_start_matches("- ").trim();
+            if item.contains("[skip ci]") || item.starts_with("chore(release):") || item.starts_with("bump version") {
+                continue;
+            }
+
             let clean_item = if let Some(idx) = item.rfind('(') {
                 if item.ends_with(')') {
                     item[..idx].trim()
@@ -200,6 +204,9 @@ pub fn extract_highlights(raw_notes: &str) -> Vec<String> {
             let t = line.trim();
             if t.starts_with("- ") || t.starts_with("* ") {
                 let item = t.trim_start_matches(|c| c == '-' || c == '*' || c == ' ').trim();
+                if item.contains("[skip ci]") || item.starts_with("chore(release):") || item.starts_with("bump version") {
+                    continue;
+                }
                 if !item.is_empty() {
                     highlights.push(format!("• {}", item));
                 }
