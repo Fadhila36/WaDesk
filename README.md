@@ -162,16 +162,30 @@ WaDesk does not transmit messages, chat logs, or account tokens to external tele
 - **Portable**: Download `WaDesk-<version>-Windows-x86_64.zip`, extract to any folder, and run `wadesk.exe`.
 
 ### macOS
+
 Download `WaDesk-<version>-macOS-Universal.dmg` (supports both Apple Silicon and Intel systems):
-1. Open the `.dmg` file and drag `WaDesk.app` into your `/Applications` directory.
-2. Because WaDesk is distributed directly via GitHub without a paid Apple Developer certificate, macOS Gatekeeper blocks execution on first launch with a warning (*"Apple could not verify WaDesk is free of malware"*).
-3. Choose one of the following methods to grant permission (only required once):
-   - **Method 1 (System Settings)**: Click **Done** on the alert dialog. Open **System Settings > Privacy & Security**, scroll to the **Security** section, and click **Open Anyway**. Enter your Mac password or Touch ID when prompted.
-   - **Method 2 (Control-Click in Finder)**: Open Finder, go to `/Applications`, hold the **Control** key, and click `WaDesk.app` (or right-click). Select **Open** from the context menu, then click **Open** in the dialog.
-   - **Method 3 (Terminal)**: Open Terminal and remove the quarantine attribute:
+
+1. **Opening the Disk Image (`.dmg`)**:
+   - Because WaDesk is distributed directly via GitHub releases without a paid Apple Developer certificate ($99/yr), macOS Gatekeeper (especially on macOS Sequoia 15+ and Sonoma 14+) blocks direct double-clicking of the `.dmg` file with an alert: *"WaDesk-...dmg Not Opened (Apple could not verify it is free of malware)"*.
+   - **Resolution (GUI - Recommended)**:
+     1. Click **Done** on the alert (do not select "Move to Trash").
+     2. Open **System Settings > Privacy & Security**.
+     3. Scroll down to the **Security** section where you will see: *"WaDesk-...dmg was blocked from use because it is not from an identified developer"*.
+     4. Click **Open Anyway** and confirm with your Mac password or Touch ID. The disk image will immediately mount in Finder.
+   - **Resolution (Terminal - 1 Second)**:
+     Open Terminal and run:
+     ```bash
+     xattr -d com.apple.quarantine ~/Downloads/WaDesk-*.dmg
+     ```
+     Then double-click the `.dmg` file normally.
+
+2. **Installing the Application**:
+   - Drag `WaDesk.app` into your `/Applications` directory.
+   - If macOS displays a similar verification prompt when launching `WaDesk.app` for the first time, either allow it via **System Settings > Privacy & Security > Open Anyway**, or remove the quarantine flag in Terminal:
      ```bash
      xattr -cr /Applications/WaDesk.app
      ```
+   - Alternatively, you can download `WaDesk-<version>-macOS-Universal.zip`, extract it to `/Applications`, and run the `xattr -cr` command above.
 
 ### Linux
 - **Debian / Ubuntu**:

@@ -128,9 +128,14 @@
             composer.focus();
             document.execCommand('insertText', false, text);
 
-            var sendBtn = q('footer span[data-testid="send"]') || q('footer button[aria-label="Send"]');
+            var sendBtn = q('footer button[data-testid="send"]') ||
+                          q('footer span[data-icon="send"]') ||
+                          q('footer span[data-testid="send"]') ||
+                          q('footer button[aria-label="Send"]') ||
+                          q('footer button[aria-label="Kirim"]');
             if (sendBtn) {
-                sendBtn.click();
+                var clickTarget = sendBtn.closest ? (sendBtn.closest('button') || sendBtn) : sendBtn;
+                clickTarget.click();
                 return { ok: true, sent: text };
             }
 
