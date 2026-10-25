@@ -256,3 +256,18 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit and Push Updated Version to Repository
+        run: |
+          CLEAN_VER="${{ env.TAG_NAME }}"
+          CLEAN_VER="${CLEAN_VER#v}"
+          python3 .github/scripts/generate_version.py --sync-versions "$CLEAN_VER"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml installer/windows/wadesk.iss installer/macos/Info.plist
+          if git diff --staged --quiet; then
+            echo "Version files are already up-to-date."
+          else
+            git commit -m "chore(release): bump version to $CLEAN_VER in Cargo.toml and installers [skip ci]"
+            git push origin HEAD:master || git push origin HEAD:main || true
+          fi
