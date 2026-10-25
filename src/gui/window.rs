@@ -72,6 +72,11 @@ pub fn apply_preferences_to_hwnd(hwnd: HWND) {
     }
 }
 
+pub fn toggle_privacy_blur(hwnd: HWND) {
+    update_preferences(|p| p.privacy_blur = !p.privacy_blur);
+    apply_preferences_to_hwnd(hwnd);
+}
+
 pub const WM_DISPATCH_UI: u32 = WM_USER + 100;
 
 pub const HOTKEY_PRIVACY: i32 = 101;
@@ -245,17 +250,21 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
     let _ = InsertMenuW(menu, 4, MF_BYPOSITION | MF_STRING | a_flag, 2006, w!("Auto-Blur saat Inaktif (30s)"));
     let _ = InsertMenuW(menu, 5, MF_BYPOSITION | MF_STRING | mute_flag, 2007, w!("Mute Audio saat Minimized"));
 
-    let _ = InsertMenuW(menu, 6, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = InsertMenuW(menu, 7, MF_BYPOSITION | MF_STRING, 2003, w!("Ganti Akun (Ctrl+Shift+A)"));
+    let autostart_on = crate::gui::autostart::is_autostart_enabled();
+    let auto_flag = if autostart_on { MF_CHECKED } else { MF_UNCHECKED };
+    let _ = InsertMenuW(menu, 6, MF_BYPOSITION | MF_STRING | auto_flag, 2009, w!("Mulai Otomatis saat Windows Menyala"));
+
+    let _ = InsertMenuW(menu, 7, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+    let _ = InsertMenuW(menu, 8, MF_BYPOSITION | MF_STRING, 2003, w!("Ganti Akun (Ctrl+Shift+A)"));
     let update_title = if let Some(ready_ver) = crate::gui::updater::get_ready_update_version() {
         format!("⚡ Pasang Pembaruan v{} (Siap)\0", ready_ver)
     } else {
         "Cek Pembaruan...\0".to_string()
     };
     let wide_update: Vec<u16> = update_title.encode_utf16().collect();
-    let _ = InsertMenuW(menu, 8, MF_BYPOSITION | MF_STRING, 2008, PCWSTR(wide_update.as_ptr()));
-    let _ = InsertMenuW(menu, 9, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = InsertMenuW(menu, 10, MF_BYPOSITION | MF_STRING, 2004, w!("Keluar"));
+    let _ = InsertMenuW(menu, 9, MF_BYPOSITION | MF_STRING, 2008, PCWSTR(wide_update.as_ptr()));
+    let _ = InsertMenuW(menu, 10, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+    let _ = InsertMenuW(menu, 11, MF_BYPOSITION | MF_STRING, 2004, w!("Keluar"));
 
     let mut pt = POINT::default();
     let _ = GetCursorPos(&mut pt);
@@ -323,7 +332,17 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
             save_current_preferences();
         }
         2008 => {
-            crate::gui::updater::trigger_manual_update_or_install(hwnd);
+            crate::gui::updater::check_for_updates_manual(hwnd);
+        }
+        2009 => {
+            let curr = crate::gui::autostart::is_autostart_enabled();
+            let _ = crate::gui::autostart::set_autostart(!curr);
+            let status_msg = if !curr {
+                "WaDesk akan mulai otomatis saat Windows menyala."
+            } else {
+                "Mulai otomatis saat Windows menyala dinonaktifkan."
+            };
+            crate::gui::tray::TrayIcon::show_balloon_static(hwnd, "WaDesk", status_msg);
         }
         _ => {}
     }

@@ -15,7 +15,9 @@ pub const TRAY_ID: u32 = 1001;
 
 pub const CMD_SHOW_HIDE: u32 = 2001;
 pub const CMD_PRIVACY_TOGGLE: u32 = 2002;
-pub const CMD_EXIT: u32 = 2003;
+pub const CMD_AUTOSTART_TOGGLE: u32 = 2003;
+pub const CMD_CHECK_UPDATES: u32 = 2004;
+pub const CMD_EXIT: u32 = 2005;
 
 pub struct TrayIcon {
     hwnd: HWND,
@@ -84,7 +86,7 @@ impl TrayIcon {
     }
 
 
-    pub fn show_context_menu(&self, is_window_visible: bool, is_privacy_on: bool) -> u32 {
+    pub fn show_context_menu(&self, is_window_visible: bool, is_privacy_on: bool, is_autostart_on: bool) -> u32 {
         unsafe {
             let menu: HMENU = match CreatePopupMenu() {
                 Ok(m) => m,
@@ -104,10 +106,20 @@ impl TrayIcon {
             let w_privacy: Vec<u16> = "Privacy Blur Mode\0".encode_utf16().collect();
             let _ = InsertMenuW(menu, 1, privacy_flags, CMD_PRIVACY_TOGGLE as usize, PCWSTR(w_privacy.as_ptr()));
 
-            let _ = InsertMenuW(menu, 2, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+            let autostart_state = if is_autostart_on { MF_CHECKED } else { MF_UNCHECKED };
+            let autostart_flags = MF_BYPOSITION | MF_STRING | autostart_state;
+            let w_autostart: Vec<u16> = "Start with Windows\0".encode_utf16().collect();
+            let _ = InsertMenuW(menu, 2, autostart_flags, CMD_AUTOSTART_TOGGLE as usize, PCWSTR(w_autostart.as_ptr()));
+
+            let _ = InsertMenuW(menu, 3, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
+
+            let w_update: Vec<u16> = "Check for Updates...\0".encode_utf16().collect();
+            let _ = InsertMenuW(menu, 4, MF_BYPOSITION | MF_STRING, CMD_CHECK_UPDATES as usize, PCWSTR(w_update.as_ptr()));
+
+            let _ = InsertMenuW(menu, 5, MF_BYPOSITION | MF_SEPARATOR, 0, PCWSTR::null());
 
             let w_exit: Vec<u16> = "Exit\0".encode_utf16().collect();
-            let _ = InsertMenuW(menu, 3, MF_BYPOSITION | MF_STRING, CMD_EXIT as usize, PCWSTR(w_exit.as_ptr()));
+            let _ = InsertMenuW(menu, 6, MF_BYPOSITION | MF_STRING, CMD_EXIT as usize, PCWSTR(w_exit.as_ptr()));
 
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);

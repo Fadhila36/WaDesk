@@ -523,11 +523,13 @@ pub fn spawn_background_update_check(hwnd: HWND, silent_if_latest: bool) {
                 }
                 Ok(None) => {
                     if !silent_if_latest {
+                        let msg = format!("WaDesk v{} sudah menggunakan versi terbaru.", CURRENT_VERSION);
                         let script = format!(
-                            "window.wadeskShowToast && window.wadeskShowToast('WaDesk v{} sudah versi terbaru.');",
-                            CURRENT_VERSION
+                            "window.wadeskShowToast && window.wadeskShowToast('{}');",
+                            msg
                         );
                         crate::gui::window::eval_script(hwnd, &script);
+                        crate::gui::tray::TrayIcon::show_balloon_static(hwnd, "WaDesk Update", &msg);
                     }
                 }
                 Err(e) => {
@@ -537,11 +539,17 @@ pub fn spawn_background_update_check(hwnd: HWND, silent_if_latest: bool) {
                             e
                         );
                         crate::gui::window::eval_script(hwnd, &script);
+                        crate::gui::tray::TrayIcon::show_balloon_static(hwnd, "WaDesk Update", "Gagal terhubung ke server pembaruan.");
                     }
                 }
             }
         });
     });
+}
+
+/// Pemeriksaan pembaruan manual yang dipicu pengguna dari menu tray
+pub fn check_for_updates_manual(hwnd: HWND) {
+    spawn_background_update_check(hwnd, false);
 }
 
 #[cfg(test)]

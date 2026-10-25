@@ -212,6 +212,7 @@ impl WebViewHost {
 
         // 3. WebMessage Received: Hubungkan event notifikasi ke tray balloon dan response RPC
         let coord_clone = coordinator.clone();
+        let ctrl_clone = controller.clone();
         let msg_handler = WebMessageReceivedEventHandler::create(Box::new(move |_sender, args| {
             if let Some(args) = args {
                 let mut raw = PWSTR(std::ptr::null_mut());
@@ -306,6 +307,35 @@ impl WebViewHost {
                                         let _ = std::process::Command::new(exe).arg("--profile").arg(id).spawn();
                                     }
                                 }
+                            }
+                            Some("switch_account_index") => {
+                                if let Some(idx) = val.get("index").and_then(|i| i.as_u64()) {
+                                    let paths = crate::config::AppPaths::for_profile(crate::config::DEFAULT_PROFILE_ID);
+                                    let manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);
+                                    if let Some(acct) = manifest.accounts.get(idx as usize) {
+                                        if let Ok(exe) = std::env::current_exe() {
+                                            let _ = std::process::Command::new(exe).arg("--profile").arg(&acct.id).spawn();
+                                        }
+                                    }
+                                }
+                            }
+                            Some("toggle_privacy") => {
+                                crate::gui::window::toggle_privacy_blur(hwnd);
+                            }
+                            Some("zoom_in") => {
+                                let mut zoom = 1.0;
+                                if unsafe { ctrl_clone.ZoomFactor(&mut zoom) }.is_ok() {
+                                    let _ = unsafe { ctrl_clone.SetZoomFactor((zoom + 0.1).min(2.5)) };
+                                }
+                            }
+                            Some("zoom_out") => {
+                                let mut zoom = 1.0;
+                                if unsafe { ctrl_clone.ZoomFactor(&mut zoom) }.is_ok() {
+                                    let _ = unsafe { ctrl_clone.SetZoomFactor((zoom - 0.1).max(0.5)) };
+                                }
+                            }
+                            Some("zoom_reset") => {
+                                let _ = unsafe { ctrl_clone.SetZoomFactor(1.0) };
                             }
                             _ => {
                                 if let Some(rpc_id) = val.get("rpc_id").and_then(|r| r.as_str()).map(|s| s.to_string()) {

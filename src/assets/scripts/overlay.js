@@ -69,6 +69,22 @@
             transition: all 0.15s;
         }
         .wadesk-act:hover { background: #2a3942; color: #25d366; }
+        .wadesk-offline-banner {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 9999999;
+            background: #d93025; color: #ffffff; padding: 10px 16px;
+            font-size: 13px; font-weight: 500; display: none;
+            align-items: center; justify-content: space-between;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .wadesk-offline-banner.show { display: flex; }
+        .wadesk-offline-banner.connected { background: #00a884; }
+        .wadesk-offline-btn {
+            background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.4);
+            color: #ffffff; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+            font-size: 12px; font-weight: 600; transition: background 0.15s;
+        }
+        .wadesk-offline-btn:hover { background: rgba(255,255,255,0.38); }
     `;
 
     function init() {
@@ -207,6 +223,90 @@
                 list.appendChild(row);
             });
         };
+
+        // Offline Reconnection Banner
+        var offlineBanner = document.createElement('div');
+        offlineBanner.className = 'wadesk-offline-banner';
+        offlineBanner.innerHTML = '<span>⚠️ Koneksi internet terputus. Mencoba menghubungkan kembali...</span><button class="wadesk-offline-btn">Coba Lagi</button>';
+        var retryBtn = offlineBanner.querySelector('.wadesk-offline-btn');
+        if (retryBtn) {
+            retryBtn.addEventListener('click', function() {
+                window.location.reload();
+            });
+        }
+        root.appendChild(offlineBanner);
+
+        window.addEventListener('offline', function () {
+            offlineBanner.classList.remove('connected');
+            offlineBanner.classList.add('show');
+            var span = offlineBanner.querySelector('span');
+            if (span) span.innerText = '⚠️ Koneksi internet terputus. Mencoba menghubungkan kembali...';
+        });
+
+        window.addEventListener('online', function () {
+            offlineBanner.classList.add('connected');
+            var span = offlineBanner.querySelector('span');
+            if (span) span.innerText = '✅ Terhubung kembali. Memperbarui halaman...';
+            setTimeout(function () {
+                window.location.reload();
+            }, 1000);
+        });
+
+        // Global In-App Keyboard Shortcuts
+        window.addEventListener('keydown', function (e) {
+            // F5 atau Ctrl+R: Refresh halaman
+            if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
+                e.preventDefault();
+                window.location.reload();
+                return;
+            }
+
+            // Ctrl+Shift+P: Toggle Privacy Blur
+            if (e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+                e.preventDefault();
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'toggle_privacy' });
+                }
+                return;
+            }
+
+            // Ctrl+1 s/d Ctrl+9: Switch profil akun
+            if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
+                e.preventDefault();
+                var acctIdx = parseInt(e.key, 10) - 1;
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'switch_account_index', index: acctIdx });
+                }
+                return;
+            }
+
+            // Zoom In: Ctrl + = atau Ctrl + +
+            if (e.ctrlKey && (e.key === '=' || e.key === '+')) {
+                e.preventDefault();
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'zoom_in' });
+                }
+                return;
+            }
+
+            // Zoom Out: Ctrl + -
+            if (e.ctrlKey && e.key === '-') {
+                e.preventDefault();
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'zoom_out' });
+                }
+                return;
+            }
+
+            // Zoom Reset: Ctrl + 0
+            if (e.ctrlKey && e.key === '0') {
+                e.preventDefault();
+                if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'zoom_reset' });
+                }
+                return;
+            }
+        });
 
         window.wadeskOverlay = {
             open: openModal,
