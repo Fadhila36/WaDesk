@@ -6,6 +6,7 @@
 #define MyAppExeName "wadesk.exe"
 
 [Setup]
+; In Inno Setup, {{ escapes a literal opening curly brace for GUID
 AppId={{D37D0602-B81E-4E6A-B68C-C877DDF75390}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
