@@ -125,3 +125,48 @@ async fn test_send_api_request_and_normalization() {
     assert_eq!(parsed.chat, Some("Keluarga".to_string()));
     assert_eq!(parsed.pace_ms, Some(50));
 }
+
+#[tokio::test]
+async fn test_start_loopback_server_live() {
+    use wadesk::config::AppPaths;
+    use wadesk::server::start_loopback_server;
+
+    let temp_dir = std::env::temp_dir().join(format!("wadesk_srv_test_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let paths = AppPaths {
+        config_dir: temp_dir.clone(),
+        user_data_dir: temp_dir.clone(),
+        discovery_file: temp_dir.join("mcp.json"),
+        token_file: temp_dir.join("mcp-token"),
+        accounts_file: temp_dir.join("accounts.json"),
+        webhooks_file: temp_dir.join("webhooks.json"),
+        window_state_file: temp_dir.join("window_state.json"),
+        prefs_file: temp_dir.join("prefs.json"),
+        profile_id: "test".to_string(),
+    };
+
+    let token = "test_token_1234567890".to_string();
+    let handle = start_loopback_server(token.clone(), &paths).await.expect("server must start");
+    assert!(handle.port > 0);
+
+    // Make an actual HTTP POST to /mcp
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("http://{}/mcp", handle.addr))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list"
+        }))
+        .send()
+        .await
+        .expect("request must succeed");
+
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = res.json().await.expect("json parse");
+    assert_eq!(body["id"], 1);
+    assert!(body["result"]["tools"].as_array().unwrap().len() >= 6);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
