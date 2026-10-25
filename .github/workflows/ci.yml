@@ -194,19 +194,18 @@ jobs:
           mkdir -p dmg-root
           cp -r WaDesk.app dmg-root/
           ln -s /Applications dmg-root/Applications
-          cat << 'EOF' > dmg-root/INSTALL_INSTRUCTIONS.txt
-======================================================
-WaDesk for macOS (Universal: Apple Silicon & Intel)
-======================================================
-
-1. Drag WaDesk.app into the Applications shortcut.
-2. If macOS Gatekeeper displays an untrusted developer prompt:
-   - Go to System Settings -> Privacy & Security -> Security section.
-   - Click "Open Anyway" and enter your Mac password.
-   - OR run this one-line command in Terminal:
-     xattr -cr /Applications/WaDesk.app
-======================================================
-EOF
+          printf "%s\n" \
+            "======================================================" \
+            "WaDesk for macOS (Universal: Apple Silicon & Intel)" \
+            "======================================================" \
+            "" \
+            "1. Drag WaDesk.app into the Applications shortcut." \
+            "2. If macOS Gatekeeper displays an untrusted developer prompt:" \
+            "   - Open System Settings -> Privacy & Security -> Security section." \
+            "   - Click 'Open Anyway' and enter your Mac password." \
+            "   - OR run this one-line command in Terminal:" \
+            "     xattr -cr /Applications/WaDesk.app" \
+            "======================================================" > dmg-root/INSTALL_INSTRUCTIONS.txt
           hdiutil create -volname "WaDesk" -srcfolder dmg-root -ov -format UDZO "mac-artifacts/WaDesk-${{ env.RESOLVED_VER }}-macOS-Universal.dmg"
           
           # 5. Zip Universal WaDesk.app
