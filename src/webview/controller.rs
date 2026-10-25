@@ -307,6 +307,11 @@ impl WebViewHost {
                             }
                             Some("switch_account") => {
                                 if let Some(id) = val.get("id").and_then(|i| i.as_str()) {
+                                    let paths = crate::config::AppPaths::for_profile(crate::config::DEFAULT_PROFILE_ID);
+                                    let mut manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);
+                                    manifest.set_last_active(id);
+                                    let _ = manifest.save(&paths.accounts_file);
+
                                     if let Ok(exe) = std::env::current_exe() {
                                         let _ = std::process::Command::new(exe).arg("--profile").arg(id).spawn();
                                     }
@@ -315,10 +320,14 @@ impl WebViewHost {
                             Some("switch_account_index") => {
                                 if let Some(idx) = val.get("index").and_then(|i| i.as_u64()) {
                                     let paths = crate::config::AppPaths::for_profile(crate::config::DEFAULT_PROFILE_ID);
-                                    let manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);
+                                    let mut manifest = crate::config::AccountsManifest::load_or_default(&paths.accounts_file);
                                     if let Some(acct) = manifest.accounts.get(idx as usize) {
+                                        let acct_id = acct.id.clone();
+                                        manifest.set_last_active(&acct_id);
+                                        let _ = manifest.save(&paths.accounts_file);
+
                                         if let Ok(exe) = std::env::current_exe() {
-                                            let _ = std::process::Command::new(exe).arg("--profile").arg(&acct.id).spawn();
+                                            let _ = std::process::Command::new(exe).arg("--profile").arg(&acct_id).spawn();
                                         }
                                     }
                                 }

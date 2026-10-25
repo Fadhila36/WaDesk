@@ -44,12 +44,26 @@ mod windows_app {
     }
 
     pub fn run() -> anyhow::Result<()> {
-        let (profile_id, is_explicit, start_minimized) = parse_cli_args();
+        let (cli_profile_id, is_explicit, start_minimized) = parse_cli_args();
+        let default_paths = AppPaths::for_profile(DEFAULT_PROFILE_ID);
+        default_paths.ensure_dirs()?;
+
+        // Load or initialize accounts manifest
+        let mut manifest = AccountsManifest::load_or_default(&default_paths.accounts_file);
+
+        // Jika cold launch (buka dari shortcut tanpa parameter), gunakan akun terakhir yang dipakai
+        let profile_id = if !is_explicit {
+            manifest.get_last_active_id()
+        } else {
+            cli_profile_id
+        };
+
         let paths = AppPaths::for_profile(&profile_id);
         paths.ensure_dirs()?;
 
-        // Load or initialize accounts manifest
-        let mut manifest = AccountsManifest::load_or_default(&paths.accounts_file);
+        // Catat akun ini sebagai akun terakhir yang aktif
+        manifest.set_last_active(&profile_id);
+
         let account = manifest.get(&profile_id).cloned().unwrap_or_else(|| {
             let new_acct = Account {
                 id: profile_id.clone(),
@@ -62,9 +76,9 @@ mod windows_app {
                 autostart: true,
             };
             manifest.add_or_update(new_acct.clone());
-            let _ = manifest.save(&paths.accounts_file);
             new_acct
         });
+        let _ = manifest.save(&default_paths.accounts_file);
 
         let window_title = format!("{} - {}", APP_NAME, account.name);
 
@@ -73,19 +87,6 @@ mod windows_app {
         if !guard.is_primary() {
             guard.focus_existing_window(&window_title);
             return Ok(());
-        }
-
-        // 2. Start sibling accounts if cold launch
-        if !is_explicit {
-            let exe = env::current_exe()?;
-            for acct in &manifest.accounts {
-                if acct.id != profile_id && acct.autostart {
-                    let _ = std::process::Command::new(&exe)
-                        .arg("--profile")
-                        .arg(&acct.id)
-                        .spawn();
-                }
-            }
         }
 
         // 3. Audio session renaming di Windows Volume Mixer
@@ -146,7 +147,25 @@ mod windows_app {
                         let req_id = coord.next_id();
                         let rx = coord.register(&req_id);
                         let script = format!(
-                            "window.wadeskAgent && window.wadeskAgent.call({}, {}, {});",
+                            "(function() {{\
+                                var id = {};\
+                                var fn = {};\
+                                var args = {};\
+                                if (window.wadeskAgent) {{\
+                                    window.wadeskAgent.call(id, fn, args);\
+                                }} else if (window.chrome && window.chrome.webview) {{\
+                                    window.chrome.webview.postMessage({{\
+                                        type: 'agent_reply',\
+                                        id: id,\
+                                        result: {{\
+                                            ready: false,\
+                                            service: 'WA',\
+                                            title: document.title || 'WhatsApp',\
+                                            error: 'WhatsApp Web is still loading or connecting'\
+                                        }}\
+                                    }});\
+                                }}\
+                            }})();",
                             serde_json::to_string(&req_id).map_err(|e| e.to_string())?,
                             serde_json::to_string(&name).map_err(|e| e.to_string())?,
                             serde_json::to_string(&args.to_string()).map_err(|e| e.to_string())?

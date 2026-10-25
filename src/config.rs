@@ -107,15 +107,18 @@ impl Default for Account {
 }
 
 /// Manifest penyimpanan daftar akun
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountsManifest {
     pub accounts: Vec<Account>,
+    #[serde(default)]
+    pub last_active_account: Option<String>,
 }
 
 impl Default for AccountsManifest {
     fn default() -> Self {
         Self {
             accounts: vec![Account::default()],
+            last_active_account: Some(DEFAULT_PROFILE_ID.to_string()),
         }
     }
 }
@@ -154,11 +157,33 @@ impl AccountsManifest {
     pub fn remove(&mut self, id: &str) -> bool {
         let initial_len = self.accounts.len();
         self.accounts.retain(|a| a.id != id);
+        if self.last_active_account.as_deref() == Some(id) {
+            self.last_active_account = self.accounts.first().map(|a| a.id.clone());
+        }
         self.accounts.len() < initial_len
     }
 
     pub fn get(&self, id: &str) -> Option<&Account> {
         self.accounts.iter().find(|a| a.id == id)
+    }
+
+    pub fn set_last_active(&mut self, id: &str) {
+        if self.accounts.iter().any(|a| a.id == id) {
+            self.last_active_account = Some(id.to_string());
+        }
+    }
+
+    pub fn get_last_active_id(&self) -> String {
+        self.last_active_account
+            .as_ref()
+            .filter(|id| self.accounts.iter().any(|a| &a.id == *id))
+            .cloned()
+            .unwrap_or_else(|| {
+                self.accounts
+                    .first()
+                    .map(|a| a.id.clone())
+                    .unwrap_or_else(|| DEFAULT_PROFILE_ID.to_string())
+            })
     }
 }
 

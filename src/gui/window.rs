@@ -9,7 +9,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW,
     GetClientRect, GetCursorPos, GetMessageW, GetWindowLongPtrW, InsertMenuW,
-    LoadIconW, PostQuitMessage, RegisterClassExW, SendMessageW, SetForegroundWindow,
+    LoadIconW, PostMessageW, PostQuitMessage, RegisterClassExW, SendMessageW, SetForegroundWindow,
     SetWindowLongPtrW, ShowWindow, TrackPopupMenu, TranslateMessage, GWLP_USERDATA,
     HICON, IDI_APPLICATION, MF_BYPOSITION, MF_CHECKED, MF_SEPARATOR, MF_STRING,
     MF_UNCHECKED, MSG, SIZE_MINIMIZED, SW_HIDE, SW_RESTORE, SW_SHOW, TPM_BOTTOMALIGN,
@@ -165,8 +165,9 @@ impl AppWindow {
 
     pub fn attach_webview(&mut self, webview: WebViewHost) {
         unsafe {
-            let ctrl_ptr = &webview.controller as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
-            SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, ctrl_ptr as isize);
+            // Simpan ICoreWebView2Controller yang di-clone di heap agar alamat pointer stabil dan tidak pernah dangling
+            let heap_ctrl = Box::into_raw(Box::new(webview.controller.clone()));
+            SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, heap_ctrl as isize);
         }
         apply_preferences_to_hwnd(self.hwnd);
         self.webview = Some(webview);
@@ -208,20 +209,21 @@ impl Drop for AppWindow {
             let _ = UnregisterHotKey(self.hwnd, HOTKEY_PRIVACY);
             let _ = UnregisterHotKey(self.hwnd, HOTKEY_OVERLAY);
             let _ = UnregisterHotKey(self.hwnd, HOTKEY_MINIMIZE);
-            SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
+            let ctrl_ptr = SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
+            if ctrl_ptr != 0 {
+                let _ = Box::from_raw(ctrl_ptr as *mut webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller);
+            }
         }
     }
 }
 
 pub fn eval_script(hwnd: HWND, script: &str) {
+    let wide: Vec<u16> = script.encode_utf16().chain(std::iter::once(0)).collect();
+    let ptr = Box::into_raw(Box::new(wide));
     unsafe {
-        let ctrl_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-        if ctrl_ptr != 0 {
-            let ctrl = &*(ctrl_ptr as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller);
-            if let Ok(webview) = ctrl.CoreWebView2() {
-                let wide: Vec<u16> = script.encode_utf16().chain(std::iter::once(0)).collect();
-                let _ = webview.ExecuteScript(PCWSTR(wide.as_ptr()), None);
-            }
+        let res = PostMessageW(hwnd, WM_DISPATCH_UI, WPARAM(0), LPARAM(ptr as isize));
+        if res.is_err() {
+            let _ = Box::from_raw(ptr);
         }
     }
 }
@@ -357,6 +359,20 @@ unsafe extern "system" fn wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        WM_DISPATCH_UI => {
+            let ptr = lparam.0 as *mut Vec<u16>;
+            if !ptr.is_null() {
+                let wide = Box::from_raw(ptr);
+                let ctrl_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+                if ctrl_ptr != 0 {
+                    let ctrl = &*(ctrl_ptr as *const webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller);
+                    if let Ok(webview) = ctrl.CoreWebView2() {
+                        let _ = webview.ExecuteScript(PCWSTR(wide.as_ptr()), None);
+                    }
+                }
+            }
+            LRESULT(0)
+        }
         WM_ACTIVATE => {
             let active_state = (wparam.0 & 0xFFFF) as u32;
             if active_state == WA_INACTIVE {

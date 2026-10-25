@@ -37,9 +37,18 @@ fn test_accounts_manifest_serialization() {
     let found = manifest.get("work_01").expect("account should exist");
     assert_eq!(found.name, "Work Account");
 
+    manifest.set_last_active("work_01");
+    assert_eq!(manifest.get_last_active_id(), "work_01");
+
     let json = serde_json::to_string(&manifest).expect("serialize should succeed");
     let deserialized: AccountsManifest = serde_json::from_str(&json).expect("deserialize should succeed");
     assert_eq!(deserialized.accounts.len(), 2);
+    assert_eq!(deserialized.get_last_active_id(), "work_01");
+
+    // Test removing active account falls back
+    let mut manifest_copy = deserialized.clone();
+    manifest_copy.remove("work_01");
+    assert_eq!(manifest_copy.get_last_active_id(), DEFAULT_PROFILE_ID);
 }
 
 #[test]
