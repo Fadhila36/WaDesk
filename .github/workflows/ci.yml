@@ -34,6 +34,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Dynamic Version
+        id: ver
+        shell: bash
+        run: |
+          git fetch --tags --force
+          VERSION=$(python3 .github/scripts/generate_version.py)
+          CLEAN_VER="${VERSION#v}"
+          echo "RESOLVED_TAG=$VERSION" >> $GITHUB_ENV
+          echo "RESOLVED_VER=$CLEAN_VER" >> $GITHUB_ENV
+          python3 .github/scripts/generate_version.py --sync-versions "$CLEAN_VER"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -88,14 +101,14 @@ jobs:
         run: |
           mkdir linux-artifacts
           
-          # 1. Build .deb installer package
+          # 1. Build .deb installer package with dynamic version
           mkdir -p deb-package/DEBIAN
           mkdir -p deb-package/usr/bin
           mkdir -p deb-package/usr/share/applications
           mkdir -p deb-package/usr/share/icons/hicolor/scalable/apps
           
           echo "Package: wadesk" > deb-package/DEBIAN/control
-          echo "Version: 1.0.0" >> deb-package/DEBIAN/control
+          echo "Version: ${{ env.RESOLVED_VER }}" >> deb-package/DEBIAN/control
           echo "Section: net" >> deb-package/DEBIAN/control
           echo "Priority: optional" >> deb-package/DEBIAN/control
           echo "Architecture: amd64" >> deb-package/DEBIAN/control
@@ -108,7 +121,7 @@ jobs:
           cp installer/linux/wadesk.desktop deb-package/usr/share/applications/wadesk.desktop
           cp assets/whatsapp.svg deb-package/usr/share/icons/hicolor/scalable/apps/wadesk.svg
           
-          dpkg-deb --build deb-package linux-artifacts/wadesk_1.0.0_amd64.deb
+          dpkg-deb --build deb-package "linux-artifacts/wadesk_${{ env.RESOLVED_VER }}_amd64.deb"
           
           # 2. Build tarball with install.sh / uninstall.sh
           mkdir dist
