@@ -1,3 +1,5 @@
 /target
 /scratch_repo
 /docs
+/scratch
+*.msixbundle

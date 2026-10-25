@@ -44,3 +44,62 @@ async fn test_json_rpc_tools_list() {
     assert!(tool_names.contains(&"send_message"));
     assert!(tool_names.contains(&"open_chat"));
 }
+
+#[tokio::test]
+async fn test_json_rpc_tools_call_unknown_tool() {
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(2)),
+        method: "tools/call".to_string(),
+        params: Some(json!({
+            "name": "non_existent_tool",
+            "arguments": {}
+        })),
+    };
+
+    let resp = handle_json_rpc(req).await;
+    assert_eq!(resp.id, Some(json!(2)));
+    assert!(resp.result.is_none());
+    let err = resp.error.expect("error should be returned for unknown tool");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("Tool not found"));
+}
+
+#[tokio::test]
+async fn test_json_rpc_tools_call_with_dispatcher() {
+    use std::sync::Arc;
+    use wadesk::server::mcp::set_global_tool_dispatcher;
+
+    // Register test dispatcher
+    set_global_tool_dispatcher(Arc::new(|name, args| {
+        Box::pin(async move {
+            if name == "send_message" {
+                let text = args.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                Ok(json!({ "ok": true, "echo": text }))
+            } else {
+                Err("test error".to_string())
+            }
+        })
+    }));
+
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(3)),
+        method: "tools/call".to_string(),
+        params: Some(json!({
+            "name": "send_message",
+            "arguments": { "text": "Halo dari Antigravity" }
+        })),
+    };
+
+    let resp = handle_json_rpc(req).await;
+    assert_eq!(resp.id, Some(json!(3)));
+    assert!(resp.error.is_none());
+
+    let result = resp.result.expect("result should be present");
+    assert_eq!(result["isError"], false);
+    let content = result["content"].as_array().expect("content array");
+    assert!(!content.is_empty());
+    let text = content[0]["text"].as_str().unwrap();
+    assert!(text.contains("Halo dari Antigravity"));
+}

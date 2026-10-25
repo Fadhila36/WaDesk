@@ -341,9 +341,21 @@ impl WebViewHost {
                             Some("zoom_reset") => {
                                 let _ = unsafe { ctrl_clone.SetZoomFactor(1.0) };
                             }
+                            Some("agent_reply") => {
+                                let rpc_id = val.get("id").or_else(|| val.get("rpc_id"))
+                                    .and_then(|r| r.as_str())
+                                    .map(|s| s.to_string());
+                                if let Some(id_str) = rpc_id {
+                                    let payload = val.get("result").cloned().unwrap_or_else(|| val.clone());
+                                    coord_clone.resolve(&id_str, payload);
+                                }
+                            }
                             _ => {
-                                if let Some(rpc_id) = val.get("rpc_id").and_then(|r| r.as_str()).map(|s| s.to_string()) {
-                                    coord_clone.resolve(&rpc_id, val);
+                                let rpc_id = val.get("id").or_else(|| val.get("rpc_id"))
+                                    .and_then(|r| r.as_str())
+                                    .map(|s| s.to_string());
+                                if let Some(id_str) = rpc_id {
+                                    coord_clone.resolve(&id_str, val);
                                 }
                             }
                         }

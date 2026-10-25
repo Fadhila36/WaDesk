@@ -119,9 +119,31 @@ mod windows_app {
             &window_state,
         )?;
 
-        // 6. Attach active WebView2 instance to window
+        // 6. Attach active WebView2 instance to window & register MCP tool dispatcher
         match wadesk::webview::controller::WebViewHost::create(window.hwnd, &paths.user_data_dir) {
             Ok(webview) => {
+                let coordinator = webview.coordinator.clone();
+                let hwnd_val = window.hwnd.0 as isize;
+                wadesk::server::mcp::set_global_tool_dispatcher(std::sync::Arc::new(move |name, args| {
+                    let coord = coordinator.clone();
+                    Box::pin(async move {
+                        let req_id = coord.next_id();
+                        let rx = coord.register(&req_id);
+                        let script = format!(
+                            "window.wadeskAgent && window.wadeskAgent.call({}, {}, {});",
+                            serde_json::to_string(&req_id).map_err(|e| e.to_string())?,
+                            serde_json::to_string(&name).map_err(|e| e.to_string())?,
+                            serde_json::to_string(&args.to_string()).map_err(|e| e.to_string())?
+                        );
+                        wadesk::gui::window::eval_script(windows::Win32::Foundation::HWND(hwnd_val as *mut _), &script);
+                        match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+                            Ok(Ok(val)) => Ok(val),
+                            Ok(Err(_)) => Err("RPC channel closed".to_string()),
+                            Err(_) => Err("Agent RPC request timed out".to_string()),
+                        }
+                    })
+                }));
+
                 window.attach_webview(webview);
             }
             Err(e) => {
