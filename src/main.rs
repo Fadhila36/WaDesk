@@ -88,9 +88,13 @@ mod windows_app {
         // 3. Audio session renaming di Windows Volume Mixer
         rename_audio_session(&window_title);
 
-        // 4. Token & Loopback server initialization
+        // 4. Token, Loopback server & Webhook watcher initialization
         let token = TokenManager::get_or_create_token(&paths.token_file)?;
         let paths_clone = paths.clone();
+        let token_clone = token.clone();
+        let profile_id_clone = profile_id.clone();
+        let account_name_clone = account.name.clone();
+        let webhooks_file = paths.webhooks_file.clone();
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -98,6 +102,15 @@ mod windows_app {
 
         rt.spawn(async move {
             let _ = start_loopback_server(token, &paths_clone).await;
+        });
+
+        rt.spawn(async move {
+            wadesk::webhooks::watcher::run_webhook_watcher_task(
+                webhooks_file,
+                token_clone,
+                profile_id_clone,
+                account_name_clone,
+            ).await;
         });
 
         // 5. GUI Window Creation & State Restoration

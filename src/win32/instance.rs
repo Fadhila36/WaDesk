@@ -34,8 +34,18 @@ impl SingleInstanceGuard {
     /// Jika bukan instance utama, coba cari jendela yang sedang terbuka dan bawa ke foreground
     pub fn focus_existing_window(&self, window_title: &str) -> bool {
         let wide_title: Vec<u16> = window_title.encode_utf16().chain(std::iter::once(0)).collect();
+        let class_name = windows::core::w!("WaDeskWindowClass");
         unsafe {
-            if let Ok(hwnd) = FindWindowW(PCWSTR::null(), PCWSTR(wide_title.as_ptr())) {
+            // Coba cari berdasarkan judul jendela
+            if let Ok(hwnd) = FindWindowW(class_name, PCWSTR(wide_title.as_ptr())) {
+                if hwnd != HWND(std::ptr::null_mut()) {
+                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                    let _ = SetForegroundWindow(hwnd);
+                    return true;
+                }
+            }
+            // Fallback: cari jendela dengan window class WaDesk jika judul berubah di runtime
+            if let Ok(hwnd) = FindWindowW(class_name, PCWSTR::null()) {
                 if hwnd != HWND(std::ptr::null_mut()) {
                     let _ = ShowWindow(hwnd, SW_RESTORE);
                     let _ = SetForegroundWindow(hwnd);

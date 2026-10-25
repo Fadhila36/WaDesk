@@ -100,8 +100,11 @@
         function handleFocus() {
             resetAutoBlurTimer();
             if (manualPrivacyActive) {
-                // Manual privacy blur tetap menyala!
+                // Manual privacy blur tetap menyala
                 apply(true, 'hover');
+            } else if (autoBlurEnabled) {
+                // Lepaskan auto-blur saat pengguna kembali aktif ke aplikasi
+                apply(false, 'hover');
             }
         }
 

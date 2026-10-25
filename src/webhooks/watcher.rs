@@ -93,3 +93,42 @@ pub async fn send_webhook_event(
         .send()
         .await;
 }
+
+/// Task latar belakang untuk polling unread chat dan mengirimkan webhook event ke URL terdaftar
+pub async fn run_webhook_watcher_task(
+    webhooks_file: std::path::PathBuf,
+    secret: String,
+    profile_id: String,
+    account_name: String,
+) {
+    let client = reqwest::Client::builder()
+        .user_agent("WaDesk-Webhook-Watcher")
+        .build()
+        .unwrap_or_default();
+
+    let mut baseline: Option<Vec<ChatItem>> = None;
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(4));
+
+    loop {
+        interval.tick().await;
+
+        let cfg = WebhooksConfig::load_or_default(&webhooks_file);
+        if cfg.urls.is_empty() {
+            continue;
+        }
+
+        if let Ok(val) = crate::server::mcp::dispatch_tool_call("list_chats", serde_json::json!({})).await {
+            if let Ok(current_chats) = serde_json::from_value::<Vec<ChatItem>>(val) {
+                if let Some(ref base) = baseline {
+                    let events = detect_unread_changes(base, &current_chats, &account_name, &profile_id);
+                    for ev in &events {
+                        for url in &cfg.urls {
+                            send_webhook_event(&client, url, &secret, &profile_id, ev).await;
+                        }
+                    }
+                }
+                baseline = Some(current_chats);
+            }
+        }
+    }
+}

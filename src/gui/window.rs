@@ -334,7 +334,7 @@ unsafe fn show_tray_popup_menu(hwnd: HWND) {
             save_current_preferences();
         }
         2008 => {
-            crate::gui::updater::check_for_updates_manual(hwnd);
+            crate::gui::updater::trigger_manual_update_or_install(hwnd);
         }
         2009 => {
             let curr = crate::gui::autostart::is_autostart_enabled();
