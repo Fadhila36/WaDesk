@@ -111,10 +111,10 @@ curl.exe -X POST $config.url `
 | `app_status` | Returns runtime state, active profile name, and connection status | None |
 | `list_chats` | Returns recent conversations, unread badges, and last messages | None |
 | `open_chat` | Navigates to a chat by contact name or phone number | `{"name": "Contact Name"}` |
-| `read_messages` | Fetches recent messages from the currently active conversation | `{"limit": 50}` |
-| `conversation_summary` | Retrieves conversation text formatted for model analysis | `{"limit": 50}` |
+| `read_messages` | Fetches recent messages including images, videos, audio, and documents | `{"limit": 50, "include_media": true, "max_media_size": 400}` |
+| `conversation_summary` | Retrieves conversation text, media statistics, and messages | `{"limit": 50, "include_media": true}` |
 | `send_message` | Sends a plain text message to the currently opened chat | `{"text": "Message content"}` |
-| `export_chat` | Exports message history from the active chat | `{"limit": 100}` |
+| `export_chat` | Exports message history from the active chat including media | `{"limit": 100, "include_media": true}` |
 
 ### HTTP REST API (`/send`)
 

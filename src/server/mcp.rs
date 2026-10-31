@@ -114,18 +114,26 @@ pub async fn handle_json_rpc(req: JsonRpcRequest) -> JsonRpcResponse {
                     },
                     {
                         "name": "read_messages",
-                        "description": "Recent messages of the active open conversation",
+                        "description": "Recent messages of the active open conversation, including images, videos, audio, and documents",
                         "inputSchema": {
                             "type": "object",
-                            "properties": { "limit": { "type": "integer", "default": 50 } }
+                            "properties": {
+                                "limit": { "type": "integer", "default": 50, "description": "Number of recent messages to return" },
+                                "include_media": { "type": "boolean", "default": true, "description": "Include base64 thumbnail data URL for images and videos" },
+                                "max_media_size": { "type": "integer", "default": 400, "description": "Max width/height in px for thumbnail compression" }
+                            }
                         }
                     },
                     {
                         "name": "conversation_summary",
-                        "description": "Reply-decision data and stats for the open conversation",
+                        "description": "Reply-decision data, media stats, and messages for the open conversation",
                         "inputSchema": {
                             "type": "object",
-                            "properties": { "limit": { "type": "integer", "default": 50 } }
+                            "properties": {
+                                "limit": { "type": "integer", "default": 50, "description": "Number of recent messages to analyze" },
+                                "include_media": { "type": "boolean", "default": true, "description": "Include base64 thumbnail data URL for images and videos" },
+                                "max_media_size": { "type": "integer", "default": 400, "description": "Max width/height in px for thumbnail compression" }
+                            }
                         }
                     },
                     {
@@ -142,7 +150,11 @@ pub async fn handle_json_rpc(req: JsonRpcRequest) -> JsonRpcResponse {
                         "description": "Exports recent messages in the active conversation",
                         "inputSchema": {
                             "type": "object",
-                            "properties": { "limit": { "type": "integer", "default": 50 } }
+                            "properties": {
+                                "limit": { "type": "integer", "default": 50, "description": "Number of recent messages to export" },
+                                "include_media": { "type": "boolean", "default": true, "description": "Include base64 thumbnail data URL for images and videos" },
+                                "max_media_size": { "type": "integer", "default": 400, "description": "Max width/height in px for thumbnail compression" }
+                            }
                         }
                     }
                 ]

@@ -43,6 +43,13 @@ async fn test_json_rpc_tools_list() {
     assert!(tool_names.contains(&"list_chats"));
     assert!(tool_names.contains(&"send_message"));
     assert!(tool_names.contains(&"open_chat"));
+    assert!(tool_names.contains(&"read_messages"));
+
+    // Verify read_messages schema includes media parameters
+    let read_tool = tools.iter().find(|t| t["name"] == "read_messages").expect("read_messages must exist");
+    let props = &read_tool["inputSchema"]["properties"];
+    assert!(props.get("include_media").is_some(), "read_messages must support include_media");
+    assert!(props.get("max_media_size").is_some(), "read_messages must support max_media_size");
 }
 
 #[tokio::test]
@@ -76,6 +83,34 @@ async fn test_json_rpc_tools_call_with_dispatcher() {
             if name == "send_message" {
                 let text = args.get("text").and_then(|t| t.as_str()).unwrap_or("");
                 Ok(json!({ "ok": true, "echo": text }))
+            } else if name == "read_messages" {
+                let include_media = args.get("include_media").and_then(|v| v.as_bool()).unwrap_or(true);
+                Ok(json!({
+                    "chat": { "name": "Alice" },
+                    "messages": [
+                        {
+                            "text": "Lihat foto ini",
+                            "time": "10:00",
+                            "outgoing": false,
+                            "media": {
+                                "type": "image",
+                                "caption": "Lihat foto ini",
+                                "mime_type": "image/jpeg",
+                                "data_url": if include_media { Some("data:image/jpeg;base64,samplebase64==") } else { None }
+                            }
+                        },
+                        {
+                            "text": "[Video: 0:45]",
+                            "time": "10:01",
+                            "outgoing": false,
+                            "media": {
+                                "type": "video",
+                                "duration": "0:45",
+                                "data_url": if include_media { Some("data:image/jpeg;base64,videothumb==") } else { None }
+                            }
+                        }
+                    ]
+                }))
             } else {
                 Err("test error".to_string())
             }
@@ -102,6 +137,27 @@ async fn test_json_rpc_tools_call_with_dispatcher() {
     assert!(!content.is_empty());
     let text = content[0]["text"].as_str().unwrap();
     assert!(text.contains("Halo dari Antigravity"));
+
+    // Also test read_messages with media extraction
+    let req_read = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: Some(json!(4)),
+        method: "tools/call".to_string(),
+        params: Some(json!({
+            "name": "read_messages",
+            "arguments": { "limit": 10, "include_media": true }
+        })),
+    };
+
+    let resp_read = handle_json_rpc(req_read).await;
+    assert_eq!(resp_read.id, Some(json!(4)));
+    assert!(resp_read.error.is_none());
+    let result_read = resp_read.result.expect("result should be present");
+    assert_eq!(result_read["isError"], false);
+    let content_read = result_read["content"][0]["text"].as_str().unwrap();
+    assert!(content_read.contains("data:image/jpeg;base64,samplebase64=="));
+    assert!(content_read.contains("video"));
+    assert!(content_read.contains("0:45"));
 }
 
 #[tokio::test]
